@@ -1,0 +1,8 @@
+{
+  "server_port": 8080,
+  "language": "Spanish",
+  "llm_provider": "ollama",
+  "llm_endpoint": "http://localhost:11434",
+  "llm_model": "gemma4:e4b",
+  "llm_api_key": ""
+}

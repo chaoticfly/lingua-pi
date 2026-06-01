@@ -1,0 +1,22 @@
+# Binary
+*.exe
+*.exe~
+
+# Config with potential secrets
+config.json
+
+# History data
+*.json
+
+# Go build artifacts
+*.test
+*.out
+/vendor/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

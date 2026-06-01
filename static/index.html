@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LinguaPi - Learn Spanish</title>
+  <!-- Pico CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <!-- Google Fonts & Material Icons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;500;700&family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+  <!-- Custom Premium Styles -->
+  <link rel="stylesheet" href="/static/custom.css">
+</head>
+<body>
+
+  <!-- Top Navigation Header -->
+  <header class="container">
+    <nav>
+      <ul>
+        <li>
+          <div class="logo-area">
+            <svg class="logo-mark" width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <rect width="36" height="36" rx="9" fill="#6366f1"/>
+              <text x="18" y="25" text-anchor="middle" fill="white" font-family="serif" font-size="19" font-weight="400" letter-spacing="-0.5">व्यं</text>
+            </svg>
+            <span class="logo-wordmark">Lingua<span class="logo-pi">Pi</span></span>
+          </div>
+        </li>
+      </ul>
+      <ul>
+        <li>
+          <div class="language-select-nav">
+            <select id="language-select" aria-label="Study Language">
+              <option value="Spanish">Spanish</option>
+              <option value="German">German</option>
+              <option value="Portuguese">Portuguese</option>
+              <option value="Italian">Italian</option>
+              <option value="Kannada">Kannada</option>
+              <option value="Telugu">Telugu</option>
+            </select>
+          </div>
+        </li>
+        <li>
+          <div class="language-select-nav">
+            <select id="difficulty-select" aria-label="Difficulty">
+              <option value="1">Beginner</option>
+              <option value="2" selected>Intermediate</option>
+              <option value="3">Advanced</option>
+            </select>
+          </div>
+        </li>
+        <li>
+          <div class="model-select-nav">
+            <span class="material-icons-round model-icon">memory</span>
+            <select id="model-select" aria-label="LLM Model">
+              <option>Loading models...</option>
+            </select>
+          </div>
+        </li>
+        <li>
+          <button id="theme-toggle" class="icon-btn theme-toggle-btn" title="Toggle light/dark mode" aria-label="Toggle theme">
+            <span class="material-icons-round" id="theme-icon">light_mode</span>
+          </button>
+        </li>
+        <li>
+          <div id="config-badge" class="badge-status">
+            <span class="dot pulse"></span>
+            <span id="config-info">Connecting...</span>
+          </div>
+        </li>
+      </ul>
+    </nav>
+  </header>
+
+  <!-- Main App Layout -->
+  <main class="container main-layout">
+    
+    <!-- Left Column: Study Area -->
+    <section class="study-section">
+      
+      <!-- Target Language Card -->
+      <article class="card glass-card" id="passage-card">
+        
+        <header class="card-header">
+          <div class="card-meta">
+            <span id="passage-category" class="category-tag">Loading...</span>
+            <h2 id="passage-title" class="passage-heading">Get started by loading a text</h2>
+          </div>
+          <div class="tts-header-controls">
+            <button id="tts-play-btn" class="icon-btn" title="Listen Text" disabled>
+              <span class="material-icons-round">play_arrow</span>
+            </button>
+            <button id="tts-stop-btn" class="icon-btn secondary" title="Stop Audio" disabled>
+              <span class="material-icons-round">stop</span>
+            </button>
+            <div class="speed-slider-container">
+              <span class="material-icons-round speed-icon">speed</span>
+              <input type="range" id="tts-speed" min="0.5" max="1.5" step="0.1" value="0.9" aria-label="Speech Speed">
+              <span id="speed-label">0.9x</span>
+            </div>
+            <button id="tts-help-btn" class="icon-btn secondary help-btn" title="Speech Help">
+              <span class="material-icons-round">help_outline</span>
+            </button>
+          </div>
+        </header>
+
+        <!-- Paragraph Area with Clickable Words -->
+        <div class="passage-body">
+          <div id="passage-primary-container">
+            <div id="passage-primary-label" class="script-label hidden">Romanized Pronunciation</div>
+            <p id="passage-primary" class="clickable-paragraph">
+              Select a category below and click "Get New Passage" to load your first reading material.
+            </p>
+          </div>
+          
+          <div id="passage-secondary-container" class="hidden">
+            <div id="passage-secondary-label" class="script-label">Native Script</div>
+            <p id="passage-secondary" class="clickable-paragraph"></p>
+          </div>
+        </div>
+
+        <!-- Translation Reveal Area -->
+        <details id="translation-details">
+          <summary class="reveal-btn-summary">
+            <span class="material-icons-round">visibility</span> Reveal English Translation
+          </summary>
+          <div class="translation-content">
+            <p id="english-translation">Translation will appear here.</p>
+          </div>
+        </details>
+
+        <!-- Control Action Bar -->
+        <footer class="card-actions">
+          <div class="category-select-wrapper">
+            <label for="category-select" class="sr-only">Category</label>
+            <select id="category-select">
+              <option value="random">Random Category</option>
+              <option value="news">News & Events</option>
+              <option value="stories">Stories & Tales</option>
+              <option value="culture">History & Culture</option>
+              <option value="novels">Literature & Novels</option>
+            </select>
+          </div>
+          <button id="next-btn" class="primary-gradient-btn">
+            <span class="material-icons-round">autorenew</span> Get New Passage
+          </button>
+        </footer>
+
+      </article>
+
+      <!-- History Section -->
+      <article class="card glass-card history-card">
+        <header>
+          <div class="history-header">
+            <span class="material-icons-round history-icon">history</span>
+            <h3>Study History</h3>
+          </div>
+        </header>
+        <div class="history-list-wrapper">
+          <ul id="history-list" class="history-list">
+            <li class="empty-history">Your generated reading history will appear here.</li>
+          </ul>
+        </div>
+      </article>
+
+    </section>
+
+    <!-- Right Column: Context Analyzer (collapses on mobile) -->
+    <aside class="analyzer-section" id="analyzer-panel">
+      <div class="card glass-card analyzer-card">
+        <header class="analyzer-header">
+          <div class="analyzer-title-area">
+            <span class="material-icons-round analyzer-icon">troubleshoot</span>
+            <h3>Grammar Analyzer</h3>
+          </div>
+          <button id="close-analyzer" class="icon-btn-close mobile-only" aria-label="Close panel">
+            <span class="material-icons-round">close</span>
+          </button>
+        </header>
+
+        <div id="analyzer-default" class="analyzer-state-empty">
+          <span class="material-icons-round giant-icon animate-bounce">ads_click</span>
+          <p>Click on any word in the text or select a phrase to get an instant breakdown of meanings, verb tenses, conjugations, and usages.</p>
+        </div>
+
+        <div id="analyzer-loading" class="analyzer-state-loading hidden">
+          <div class="spinner"></div>
+          <p>Analyzing "<span id="loading-word-name">...</span>" with LLM...</p>
+        </div>
+
+        <div id="analyzer-results" class="analyzer-state-results hidden">
+          <div class="result-word-header">
+            <h4 id="result-word">Palabra</h4>
+          </div>
+          <span id="result-pos" class="pos-badge">Noun</span>
+
+          <div class="result-translation-block">
+            <label>Translation</label>
+            <p id="result-translation" class="result-text-primary">translation...</p>
+          </div>
+
+          <div class="result-detail-block">
+            <label>Definition & Nuance</label>
+            <p id="result-definition">Detailed explanation here...</p>
+          </div>
+
+          <div id="result-tense-block" class="result-detail-block">
+            <label>Grammar & Form</label>
+            <p id="result-tense">Tense detail here...</p>
+          </div>
+
+          <div class="result-detail-block">
+            <label>Synonyms</label>
+            <div id="result-synonyms" class="synonym-pill-container">
+              <!-- Synonyms pills here -->
+            </div>
+          </div>
+
+          <div class="result-detail-block">
+            <label>Example Sentences</label>
+            <div id="result-usages" class="usage-examples-list">
+              <!-- Usage list -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+  </main>
+
+  <!-- TTS Help Modal -->
+  <dialog id="tts-help-modal" class="glass-modal">
+    <article class="glass-modal-card">
+      <header class="modal-header">
+        <div class="modal-title-area">
+          <span class="material-icons-round" style="color: var(--primary-color);">campaign</span>
+          <h3>Install Speech Voices</h3>
+        </div>
+        <button id="close-tts-help" class="icon-btn-close" aria-label="Close modal">
+          <span class="material-icons-round">close</span>
+        </button>
+      </header>
+      <div class="modal-body-content">
+        <p>To hear authentic pronunciations in languages like Kannada, Telugu, German, or Italian, you need to install the corresponding language voice pack on your device:</p>
+        
+        <div class="os-instructions">
+          <details>
+            <summary><strong>Windows 10 / 11</strong></summary>
+            <ol>
+              <li>Open <strong>Settings</strong> (Win + I).</li>
+              <li>Go to <strong>Time &amp; Language</strong> &gt; <strong>Speech</strong>.</li>
+              <li>Under "Manage voices", click <strong>Add voices</strong>.</li>
+              <li>Search for your language (e.g. "Kannada"), check the box, and click <strong>Add</strong>.</li>
+              <li>Restart your web browser to load the new voice.</li>
+            </ol>
+          </details>
+
+          <details>
+            <summary><strong>Android</strong></summary>
+            <ol>
+              <li>Open <strong>Settings</strong>.</li>
+              <li>Go to <strong>System</strong> &gt; <strong>Languages &amp; Input</strong> &gt; <strong>Text-to-speech output</strong>.</li>
+              <li>Tap the Settings gear icon next to "Preferred engine" (usually Google TTS).</li>
+              <li>Select <strong>Install voice data</strong> and download your language.</li>
+            </ol>
+          </details>
+
+          <details>
+            <summary><strong>macOS</strong></summary>
+            <ol>
+              <li>Open <strong>System Settings</strong>.</li>
+              <li>Go to <strong>Accessibility</strong> &gt; <strong>Spoken Content</strong>.</li>
+              <li>Select the <strong>System Voice</strong> dropdown and click <strong>Manage Voices...</strong>.</li>
+              <li>Find your language, click download, and click <strong>OK</strong>.</li>
+            </ol>
+          </details>
+
+          <details>
+            <summary><strong>iOS (iPhone &amp; iPad)</strong></summary>
+            <ol>
+              <li>Open <strong>Settings</strong>.</li>
+              <li>Go to <strong>Accessibility</strong> &gt; <strong>Spoken Content</strong> &gt; <strong>Voices</strong>.</li>
+              <li>Select the target language, choose a specific voice, and tap the download icon.</li>
+            </ol>
+          </details>
+
+          <details>
+            <summary><strong>Linux (Raspberry Pi / Desktop)</strong></summary>
+            <p>Install system-wide speech packages via terminal, then restart the browser/server:</p>
+            <pre><code>sudo apt-get update
+sudo apt-get install espeak speech-dispatcher-espeak festival</code></pre>
+          </details>
+        </div>
+      </div>
+    </article>
+  </dialog>
+
+  <!-- Mobile Bottom Sheet Backdrop -->
+  <div id="sheet-backdrop" class="sheet-backdrop hidden"></div>
+
+  <!-- Toast Notification System -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <footer class="app-footer">
+    <div class="container text-center">
+      <p>LinguaPi • Self-hosted language learning web driver for Raspberry Pi</p>
+    </div>
+  </footer>
+
+  <!-- App Main Scripts -->
+  <script src="/static/app.js"></script>
+</body>
+</html>
