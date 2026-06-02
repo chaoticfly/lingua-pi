@@ -13,6 +13,10 @@ func main() {
 		log.Fatalf("Error loading configuration: %v", err)
 	}
 
+	if err := InitDB(); err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
+	}
+
 	// Validate LLM connection on startup
 	log.Printf("Validating LLM connection...")
 	health := CheckLLMHealth()

@@ -32,33 +32,9 @@
       </ul>
       <ul>
         <li>
-          <div class="language-select-nav">
-            <select id="language-select" aria-label="Study Language">
-              <option value="Spanish">Spanish</option>
-              <option value="German">German</option>
-              <option value="Portuguese">Portuguese</option>
-              <option value="Italian">Italian</option>
-              <option value="Kannada">Kannada</option>
-              <option value="Telugu">Telugu</option>
-            </select>
-          </div>
-        </li>
-        <li>
-          <div class="language-select-nav">
-            <select id="difficulty-select" aria-label="Difficulty">
-              <option value="1">Beginner</option>
-              <option value="2" selected>Intermediate</option>
-              <option value="3">Advanced</option>
-            </select>
-          </div>
-        </li>
-        <li>
-          <div class="model-select-nav">
-            <span class="material-icons-round model-icon">memory</span>
-            <select id="model-select" aria-label="LLM Model">
-              <option>Loading models...</option>
-            </select>
-          </div>
+          <button id="settings-open-btn" class="icon-btn theme-toggle-btn" title="Settings" aria-label="Open settings">
+            <span class="material-icons-round">settings</span>
+          </button>
         </li>
         <li>
           <button id="theme-toggle" class="icon-btn theme-toggle-btn" title="Toggle light/dark mode" aria-label="Toggle theme">
@@ -225,11 +201,140 @@
               <!-- Usage list -->
             </div>
           </div>
+
+          <div id="result-conjugation-block" class="result-detail-block hidden">
+            <label>Conjugation Table</label>
+            <div id="result-conjugation-table" class="conjugation-wrapper"></div>
+          </div>
         </div>
       </div>
     </aside>
 
   </main>
+
+  <!-- Settings Modal -->
+  <dialog id="settings-modal" class="glass-modal settings-modal">
+    <article class="glass-modal-card">
+      <header class="modal-header">
+        <div class="modal-title-area">
+          <span class="material-icons-round" style="color: var(--accent)">settings</span>
+          <h3>Settings</h3>
+        </div>
+        <button id="close-settings" class="icon-btn-close" aria-label="Close settings">
+          <span class="material-icons-round">close</span>
+        </button>
+      </header>
+      <div class="modal-body-content settings-body">
+
+        <section class="settings-section">
+          <h4 class="settings-section-title">Study</h4>
+          <div class="settings-row">
+            <label class="settings-label" for="language-select">Language</label>
+            <select id="language-select" class="settings-input" aria-label="Study Language">
+              <option value="Spanish">Spanish</option>
+              <option value="German">German</option>
+              <option value="Portuguese">Portuguese</option>
+              <option value="Italian">Italian</option>
+              <option value="Kannada">Kannada</option>
+              <option value="Telugu">Telugu</option>
+            </select>
+          </div>
+          <div class="settings-row">
+            <label class="settings-label" for="difficulty-select">Difficulty</label>
+            <select id="difficulty-select" class="settings-input" aria-label="Difficulty">
+              <option value="1">Beginner</option>
+              <option value="2">Intermediate</option>
+              <option value="3">Advanced</option>
+            </select>
+          </div>
+          <div class="settings-row">
+            <label class="settings-label" for="model-select">Model</label>
+            <select id="model-select" class="settings-input" aria-label="LLM Model">
+              <option>Loading models...</option>
+            </select>
+          </div>
+        </section>
+
+        <section class="settings-section">
+          <h4 class="settings-section-title">Reading</h4>
+          <div class="settings-row">
+            <label class="settings-label">Passage Font Size</label>
+            <div class="font-size-control">
+              <span class="font-size-a small">A</span>
+              <input type="range" id="font-size-slider" min="1" max="5" step="1" value="3" aria-label="Font size">
+              <span class="font-size-a large">A</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-section">
+          <h4 class="settings-section-title">LLM Connection</h4>
+          <div class="settings-row">
+            <label class="settings-label" for="cfg-provider">Provider</label>
+            <select id="cfg-provider" class="settings-input">
+              <option value="ollama">Ollama (local)</option>
+              <option value="openai">OpenAI / compatible</option>
+            </select>
+          </div>
+          <div class="settings-row">
+            <label class="settings-label" for="cfg-endpoint">Endpoint URL</label>
+            <input type="url" id="cfg-endpoint" class="settings-input" placeholder="http://localhost:11434">
+          </div>
+          <div class="settings-row" id="cfg-apikey-row">
+            <label class="settings-label" for="cfg-apikey">API Key</label>
+            <input type="password" id="cfg-apikey" class="settings-input" placeholder="Leave blank to keep current">
+          </div>
+        </section>
+
+        <div class="settings-actions">
+          <div id="settings-health-msg" class="settings-health-msg hidden"></div>
+          <button id="settings-save-btn" class="primary-gradient-btn">
+            <span class="material-icons-round">save</span> Save &amp; Reconnect
+          </button>
+        </div>
+
+      </div>
+    </article>
+  </dialog>
+
+  <!-- Quiz Modal -->
+  <dialog id="quiz-modal" class="glass-modal quiz-modal">
+    <article class="glass-modal-card">
+      <header class="modal-header">
+        <div class="modal-title-area">
+          <span class="material-icons-round" style="color: var(--accent)">quiz</span>
+          <h3>Quick Quiz</h3>
+        </div>
+        <button id="close-quiz" class="icon-btn-close" aria-label="Close quiz">
+          <span class="material-icons-round">close</span>
+        </button>
+      </header>
+      <div class="modal-body-content quiz-body">
+        <p class="quiz-instruction">Translate this passage into English:</p>
+        <div id="quiz-passage" class="quiz-passage-text"></div>
+        <textarea id="quiz-answer" class="quiz-textarea" placeholder="Type your translation here…" rows="4"></textarea>
+
+        <div id="quiz-reveal-block" class="quiz-reveal-block hidden">
+          <label class="quiz-reveal-label">Actual translation</label>
+          <p id="quiz-actual-translation" class="quiz-actual-text"></p>
+          <div class="quiz-verdict-btns">
+            <button id="quiz-passed-btn" class="quiz-verdict-btn quiz-pass">
+              <span class="material-icons-round">check_circle</span> Got it
+            </button>
+            <button id="quiz-failed-btn" class="quiz-verdict-btn quiz-fail">
+              <span class="material-icons-round">cancel</span> Not quite
+            </button>
+          </div>
+        </div>
+
+        <div id="quiz-check-row" class="quiz-check-row">
+          <button id="quiz-check-btn" class="primary-gradient-btn">
+            <span class="material-icons-round">visibility</span> Reveal Translation
+          </button>
+        </div>
+      </div>
+    </article>
+  </dialog>
 
   <!-- TTS Help Modal -->
   <dialog id="tts-help-modal" class="glass-modal">

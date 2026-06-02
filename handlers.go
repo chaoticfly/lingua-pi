@@ -30,6 +30,8 @@ func RegisterRoutes() {
 	http.HandleFunc("/api/generate", handleGenerate)
 	http.HandleFunc("/api/analyze", handleAnalyze)
 	http.HandleFunc("/api/history", handleGetHistory)
+	http.HandleFunc("/api/quiz", handleQuiz)
+	http.HandleFunc("/api/quiz/result", handleQuizResult)
 }
 
 func serveIndex(w http.ResponseWriter, r *http.Request) {
@@ -49,28 +51,52 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 			"llm_provider": CurrentConfig.LlmProvider,
 			"llm_model":    CurrentConfig.LlmModel,
 			"llm_endpoint": CurrentConfig.LlmEndpoint,
+			"has_api_key":  CurrentConfig.LlmApiKey != "",
 		})
 		return
 	}
 
 	if r.Method == http.MethodPost {
 		var body struct {
-			Model string `json:"model"`
+			Model    string `json:"model"`
+			Provider string `json:"provider"`
+			Endpoint string `json:"endpoint"`
+			ApiKey   string `json:"api_key"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Model == "" {
-			http.Error(w, "Bad request. 'model' field is required.", http.StatusBadRequest)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "Bad request: invalid JSON.", http.StatusBadRequest)
 			return
 		}
 
-		CurrentConfig.LlmModel = body.Model
+		if body.Model != "" {
+			CurrentConfig.LlmModel = body.Model
+		}
+		if body.Provider != "" {
+			CurrentConfig.LlmProvider = body.Provider
+		}
+		if body.Endpoint != "" {
+			CurrentConfig.LlmEndpoint = body.Endpoint
+		}
+		if body.ApiKey != "" {
+			CurrentConfig.LlmApiKey = body.ApiKey
+		}
+
 		if err := SaveConfig(); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
 
-		log.Printf("Model updated to: %s", body.Model)
-		json.NewEncoder(w).Encode(map[string]string{"model": body.Model})
+		log.Printf("Config updated: provider=%s model=%s endpoint=%s",
+			CurrentConfig.LlmProvider, CurrentConfig.LlmModel, CurrentConfig.LlmEndpoint)
+
+		// Return fresh health status so the UI can react immediately
+		health := CheckLLMHealth()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"model":    CurrentConfig.LlmModel,
+			"provider": CurrentConfig.LlmProvider,
+			"health":   health,
+		})
 		return
 	}
 
@@ -153,9 +179,7 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Save to backend JSON history file
-	err = AddHistory(result.Text, result.Transliteration, result.Translation, result.Title, result.Category)
-	if err != nil {
+	if err = AddHistory(result.Text, result.Transliteration, result.Translation, result.Title, result.Category, req.Language, int(req.Difficulty)); err != nil {
 		log.Printf("Error adding history: %v", err)
 	}
 
@@ -192,4 +216,47 @@ func handleAnalyze(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
+}
+
+func handleQuiz(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	passage, err := GetQuizPassage()
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "No history available for quiz yet."})
+		return
+	}
+	json.NewEncoder(w).Encode(passage)
+}
+
+func handleQuizResult(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var body struct {
+		HistoryID int64 `json:"history_id"`
+		Passed    bool  `json:"passed"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.HistoryID == 0 {
+		http.Error(w, "Bad request. 'history_id' is required.", http.StatusBadRequest)
+		return
+	}
+
+	if err := RecordQuizResult(body.HistoryID, body.Passed); err != nil {
+		log.Printf("Error recording quiz result: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 }

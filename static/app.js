@@ -49,10 +49,24 @@ document.addEventListener("DOMContentLoaded", () => {
   const resultTense = document.getElementById("result-tense");
   const resultSynonyms = document.getElementById("result-synonyms");
   const resultUsages = document.getElementById("result-usages");
+  const resultConjugationBlock = document.getElementById("result-conjugation-block");
+  const resultConjugationTable = document.getElementById("result-conjugation-table");
 
   const modelSelect = document.getElementById("model-select");
   const themeToggle = document.getElementById("theme-toggle");
   const themeIcon = document.getElementById("theme-icon");
+
+  // Settings modal elements
+  const settingsOpenBtn  = document.getElementById("settings-open-btn");
+  const settingsModal    = document.getElementById("settings-modal");
+  const closeSettings    = document.getElementById("close-settings");
+  const cfgProvider      = document.getElementById("cfg-provider");
+  const cfgEndpoint      = document.getElementById("cfg-endpoint");
+  const cfgApiKey        = document.getElementById("cfg-apikey");
+  const cfgApiKeyRow     = document.getElementById("cfg-apikey-row");
+  const settingsSaveBtn  = document.getElementById("settings-save-btn");
+  const settingsHealthMsg = document.getElementById("settings-health-msg");
+  const fontSizeSlider   = document.getElementById("font-size-slider");
 
   let connectionHealthy = true;
 
@@ -69,6 +83,104 @@ document.addEventListener("DOMContentLoaded", () => {
     themeIcon.textContent = next === "dark" ? "light_mode" : "dark_mode";
   });
 
+  // --- Font Size ---
+  const fontSizeSteps = ["1rem", "1.1rem", "1.25rem", "1.45rem", "1.65rem"];
+  const savedFontStep = parseInt(localStorage.getItem("linguapi_font_size") || "3", 10);
+  fontSizeSlider.value = savedFontStep;
+  applyFontSize(savedFontStep);
+
+  fontSizeSlider.addEventListener("input", (e) => {
+    const step = parseInt(e.target.value, 10);
+    applyFontSize(step);
+    localStorage.setItem("linguapi_font_size", step);
+  });
+
+  function applyFontSize(step) {
+    document.documentElement.style.setProperty("--passage-font-size", fontSizeSteps[step - 1]);
+  }
+
+  // --- Settings Modal ---
+  function showProviderFields() {
+    const isOpenAI = cfgProvider.value === "openai";
+    cfgApiKeyRow.classList.toggle("hidden", !isOpenAI);
+  }
+
+  cfgProvider.addEventListener("change", showProviderFields);
+
+  difficultySelect.addEventListener("change", (e) => {
+    localStorage.setItem("linguapi_difficulty", e.target.value);
+  });
+
+  settingsOpenBtn.addEventListener("click", async () => {
+    // Pre-fill from current config
+    try {
+      const res = await fetch("/api/config");
+      const cfg = await res.json();
+      cfgProvider.value = cfg.llm_provider || "ollama";
+      cfgEndpoint.value = cfg.llm_endpoint || "";
+      cfgApiKey.placeholder = cfg.has_api_key ? "API key set — leave blank to keep" : "Leave blank to keep current";
+      cfgApiKey.value = "";
+    } catch (_) {}
+    showProviderFields();
+    settingsHealthMsg.classList.add("hidden");
+    // Lazy-load models on first open
+    if (!modelsFetched) {
+      modelsFetched = true;
+      fetchModels();
+    }
+    settingsModal.showModal();
+  });
+
+  closeSettings.addEventListener("click", () => settingsModal.close());
+  settingsModal.addEventListener("click", (e) => { if (e.target === settingsModal) settingsModal.close(); });
+
+  settingsSaveBtn.addEventListener("click", async () => {
+    settingsSaveBtn.disabled = true;
+    settingsSaveBtn.innerHTML = `<span class="spinner" style="width:16px;height:16px;margin:0;border-width:2px;display:inline-block;vertical-align:middle;"></span> Saving...`;
+
+    const body = {
+      provider: cfgProvider.value,
+      endpoint: cfgEndpoint.value.trim(),
+    };
+    if (cfgApiKey.value.trim()) body.api_key = cfgApiKey.value.trim();
+
+    try {
+      const res = await fetch("/api/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        showSettingsHealth("error", data.error || "Save failed");
+      } else {
+        const h = data.health;
+        if (h.status === "ok") {
+          showSettingsHealth("ok", `Connected: ${h.provider} / ${h.model}`);
+          fetchConfig();
+          fetchHistory();
+          // Reset model list so it reloads on next open
+          modelSelect.innerHTML = `<option>Loading models...</option>`;
+          modelsFetched = false;
+        } else {
+          showSettingsHealth("error", h.message + (h.suggestion ? ` — ${h.suggestion}` : ""));
+        }
+      }
+    } catch (err) {
+      showSettingsHealth("error", "Network error: " + err.message);
+    } finally {
+      settingsSaveBtn.disabled = false;
+      settingsSaveBtn.innerHTML = `<span class="material-icons-round">save</span> Save &amp; Reconnect`;
+    }
+  });
+
+  function showSettingsHealth(type, msg) {
+    settingsHealthMsg.className = `settings-health-msg settings-health-${type}`;
+    settingsHealthMsg.textContent = msg;
+    settingsHealthMsg.classList.remove("hidden");
+  }
+
   // Application State
   let currentPassage = null;
   let activeLanguage = localStorage.getItem("linguapi_active_language") || "Spanish";
@@ -76,22 +188,18 @@ document.addEventListener("DOMContentLoaded", () => {
   let speechUtterance = null;
   let isSpeaking = false;
 
-  // Initialize Language selector in UI
+  // Restore persisted study preferences
   languageSelect.value = activeLanguage;
+  const savedDifficulty = localStorage.getItem("linguapi_difficulty") || "2";
+  difficultySelect.value = savedDifficulty;
 
   // --- Initialize Config / Health Check / History ---
   checkHealth();
   fetchConfig();
   fetchHistory();
 
-  // Lazy-load model list on first open
+  // Models are lazy-loaded when settings opens
   let modelsFetched = false;
-  modelSelect.addEventListener("mousedown", () => {
-    if (!modelsFetched) {
-      modelsFetched = true;
-      fetchModels();
-    }
-  });
 
   // --- Core Health Check ---
 
@@ -370,6 +478,7 @@ document.addEventListener("DOMContentLoaded", () => {
         loadPassageData(data);
         fetchHistory();
         enableAppUI();
+        maybePromptQuiz();
       } else {
         showToast(data.error || "Failed to generate reading material", "error");
         if (data.error && data.error.includes("connection")) {
@@ -569,6 +678,47 @@ document.addEventListener("DOMContentLoaded", () => {
     } else {
       resultUsages.innerHTML = `<p style="color: var(--text-subtle); margin:0; font-size:0.9rem;">No examples loaded</p>`;
     }
+
+    // Conjugation Table
+    resultConjugationTable.innerHTML = "";
+    if (data.conjugation_table && data.conjugation_table.length > 0) {
+      resultConjugationBlock.classList.remove("hidden");
+
+      // Build a matrix: collect all unique persons (rows) in order from first tense
+      const persons = data.conjugation_table[0].forms.map(f => f.person);
+      const tenses  = data.conjugation_table.map(t => t.tense);
+
+      const table = document.createElement("table");
+      table.className = "conj-table";
+
+      // Header row — tense names
+      const thead = table.createTHead();
+      const hrow  = thead.insertRow();
+      hrow.insertCell().textContent = ""; // empty corner
+      tenses.forEach(t => {
+        const th = document.createElement("th");
+        th.textContent = t;
+        hrow.appendChild(th);
+      });
+
+      // Body — one row per person
+      const tbody = table.createTBody();
+      persons.forEach((person, pi) => {
+        const row = tbody.insertRow();
+        const th = document.createElement("th");
+        th.textContent = person;
+        row.appendChild(th);
+
+        data.conjugation_table.forEach(tenseObj => {
+          const cell = row.insertCell();
+          cell.textContent = tenseObj.forms[pi]?.form ?? "—";
+        });
+      });
+
+      resultConjugationTable.appendChild(table);
+    } else {
+      resultConjugationBlock.classList.add("hidden");
+    }
   }
 
   // Reset Analyzer state
@@ -723,6 +873,86 @@ document.addEventListener("DOMContentLoaded", () => {
   if (synth.onvoiceschanged !== undefined) {
     synth.onvoiceschanged = () => synth.getVoices();
   }
+
+  // --- Quiz ---
+  const quizModal          = document.getElementById("quiz-modal");
+  const closeQuiz          = document.getElementById("close-quiz");
+  const quizPassageEl      = document.getElementById("quiz-passage");
+  const quizAnswerEl       = document.getElementById("quiz-answer");
+  const quizCheckBtn       = document.getElementById("quiz-check-btn");
+  const quizCheckRow       = document.getElementById("quiz-check-row");
+  const quizRevealBlock    = document.getElementById("quiz-reveal-block");
+  const quizActualTranslation = document.getElementById("quiz-actual-translation");
+  const quizPassedBtn      = document.getElementById("quiz-passed-btn");
+  const quizFailedBtn      = document.getElementById("quiz-failed-btn");
+
+  const QUIZ_INTERVAL = 10;
+  let currentQuizPassage = null;
+
+  function getPassageCount() {
+    return parseInt(localStorage.getItem("linguapi_passage_count") || "0", 10);
+  }
+  function incrementPassageCount() {
+    const n = getPassageCount() + 1;
+    localStorage.setItem("linguapi_passage_count", n);
+    return n;
+  }
+  function resetPassageCount() {
+    localStorage.setItem("linguapi_passage_count", "0");
+  }
+
+  function maybePromptQuiz() {
+    const count = incrementPassageCount();
+    if (count >= QUIZ_INTERVAL) {
+      resetPassageCount();
+      showToast("Ready for a quick quiz? Tap here to test yourself.", "info", () => openQuizModal());
+    }
+  }
+
+  async function openQuizModal() {
+    try {
+      const res = await fetch("/api/quiz");
+      if (!res.ok) {
+        showToast("Not enough history for a quiz yet — keep reading!", "info");
+        return;
+      }
+      currentQuizPassage = await res.json();
+    } catch (err) {
+      showToast("Could not load quiz passage.", "error");
+      return;
+    }
+
+    // Reset state
+    quizPassageEl.textContent = currentQuizPassage.text;
+    quizAnswerEl.value = "";
+    quizRevealBlock.classList.add("hidden");
+    quizCheckRow.classList.remove("hidden");
+    quizActualTranslation.textContent = currentQuizPassage.translation;
+    quizModal.showModal();
+  }
+
+  closeQuiz.addEventListener("click", () => quizModal.close());
+  quizModal.addEventListener("click", (e) => { if (e.target === quizModal) quizModal.close(); });
+
+  quizCheckBtn.addEventListener("click", () => {
+    quizRevealBlock.classList.remove("hidden");
+    quizCheckRow.classList.add("hidden");
+  });
+
+  async function submitQuizResult(passed) {
+    quizModal.close();
+    try {
+      await fetch("/api/quiz/result", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ history_id: currentQuizPassage.id, passed })
+      });
+    } catch (_) {}
+    showToast(passed ? "Nice work! Keep it up." : "Keep practicing — you'll get it!", passed ? "success" : "info");
+  }
+
+  quizPassedBtn.addEventListener("click", () => submitQuizResult(true));
+  quizFailedBtn.addEventListener("click", () => submitQuizResult(false));
 
   // --- Render Backend History ---
 

@@ -62,14 +62,25 @@ type UsageExample struct {
 	Translation string `json:"translation"`
 }
 
+type ConjugationForm struct {
+	Person string `json:"person"`
+	Form   string `json:"form"`
+}
+
+type ConjugationTense struct {
+	Tense string             `json:"tense"`
+	Forms []ConjugationForm  `json:"forms"`
+}
+
 type AnalysisResult struct {
-	WordOrPhrase       string         `json:"word_or_phrase"`
-	Translation        string         `json:"translation"`
-	PartOfSpeech       string         `json:"part_of_speech"`
-	Definition         string         `json:"definition"`
-	TenseOrConjugation string         `json:"tense_or_conjugation"`
-	Synonyms           []string       `json:"synonyms"`
-	Usages             []UsageExample `json:"usages"`
+	WordOrPhrase       string             `json:"word_or_phrase"`
+	Translation        string             `json:"translation"`
+	PartOfSpeech       string             `json:"part_of_speech"`
+	Definition         string             `json:"definition"`
+	TenseOrConjugation string             `json:"tense_or_conjugation"`
+	Synonyms           []string           `json:"synonyms"`
+	Usages             []UsageExample     `json:"usages"`
+	ConjugationTable   []ConjugationTense `json:"conjugation_table"`
 }
 
 // CallLLM performs the actual HTTP request to the LLM backend
@@ -257,7 +268,7 @@ func AnalyzeText(selectedText, contextText, language string) (*AnalysisResult, e
 		language = CurrentConfig.Language
 	}
 
-	systemPrompt := fmt.Sprintf(`You are a helpful %s language dictionary and grammar assistant. 
+	systemPrompt := fmt.Sprintf(`You are a helpful %s language dictionary and grammar assistant.
 Analyze the selected word or phrase in the context of the paragraph provided.
 Important: The user may select either the native script form of the word, or the romanized (transliterated phonetic English) spelling of the word. You must identify which was clicked, map them correctly, and perform the breakdown.
 You MUST respond with a valid JSON object only. Do NOT include markdown code blocks.
@@ -278,8 +289,22 @@ JSON structure:
       "original": "Another simple sentence using the word in its native script (with its English transliteration in parentheses if it is a non-Latin script language like Kannada or Telugu)",
       "translation": "The English translation of that sentence"
     }
+  ],
+  "conjugation_table": [
+    {
+      "tense": "Tense name in English (e.g. Present, Preterite, Imperfect, Future, Conditional, Present Subjunctive)",
+      "forms": [
+        {"person": "pronoun in %s", "form": "conjugated verb form in native script"}
+      ]
+    }
   ]
-}`, language)
+}
+CONJUGATION RULES:
+- Only populate conjugation_table when part_of_speech is a verb. For all other parts of speech return "conjugation_table": [].
+- Include the 6 most pedagogically useful tenses for the language (e.g. for Spanish: Present, Preterite, Imperfect, Future, Conditional, Present Subjunctive).
+- Always conjugate the infinitive of the verb, not the inflected form.
+- Use the correct subject pronouns for %s (e.g. Spanish: yo/tú/él/nosotros/vosotros/ellos, German: ich/du/er/wir/ihr/sie, Italian: io/tu/lui/noi/voi/loro).
+- Each tense must have exactly one entry per grammatical person.`, language, language, language)
 
 	userPrompt := fmt.Sprintf(`Selected Text (could be native script or transliterated romanized text): "%s"
 Context Paragraph: "%s"
