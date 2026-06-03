@@ -51,6 +51,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const resultUsages = document.getElementById("result-usages");
   const resultConjugationBlock = document.getElementById("result-conjugation-block");
   const resultConjugationTable = document.getElementById("result-conjugation-table");
+  const pronounceBtn = document.getElementById("pronounce-btn");
 
   const modelSelect = document.getElementById("model-select");
   const themeToggle = document.getElementById("theme-toggle");
@@ -183,6 +184,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Application State
   let currentPassage = null;
+  let currentAnalyzedText = "";
   let activeLanguage = localStorage.getItem("linguapi_active_language") || "Spanish";
   let synth = window.speechSynthesis;
   let speechUtterance = null;
@@ -375,6 +377,7 @@ document.addEventListener("DOMContentLoaded", () => {
   nextBtn.addEventListener("click", fetchNewPassage);
   ttsPlayBtn.addEventListener("click", toggleSpeech);
   ttsStopBtn.addEventListener("click", stopSpeech);
+  pronounceBtn.addEventListener("click", () => speakAnalyzedText(currentAnalyzedText));
 
   // TTS Help Dialog Modal Events
   ttsHelpBtn.addEventListener("click", () => ttsHelpModal.showModal());
@@ -639,6 +642,7 @@ document.addEventListener("DOMContentLoaded", () => {
     analyzerLoading.classList.add("hidden");
     analyzerResults.classList.remove("hidden");
 
+    currentAnalyzedText = data.word_or_phrase;
     resultWord.textContent = data.word_or_phrase;
     resultPos.textContent = data.part_of_speech || "Word";
     resultTranslation.textContent = data.translation;
@@ -861,6 +865,44 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     synth.speak(speechUtterance);
+  }
+
+  // Speak a word or short phrase from the analyzer panel.
+  // Reuses the same voice-selection logic as the main passage TTS.
+  function speakAnalyzedText(text) {
+    if (!text || !synth) return;
+    synth.cancel(); // stop any in-progress passage speech
+
+    let langCode = "es";
+    const lang = activeLanguage.toLowerCase();
+    if (lang === "german")     langCode = "de";
+    else if (lang === "portuguese") langCode = "pt";
+    else if (lang === "italian")    langCode = "it";
+    else if (lang === "kannada")    langCode = "kn";
+    else if (lang === "telugu")     langCode = "te";
+
+    const voices = synth.getVoices();
+    let selectedVoice = null;
+    for (const voice of voices) {
+      if (voice.lang.startsWith(langCode)) {
+        selectedVoice = voice;
+        if (voice.localService) break;
+      }
+    }
+
+    const utt = new SpeechSynthesisUtterance(text);
+    if (selectedVoice) {
+      utt.voice = selectedVoice;
+    } else {
+      utt.lang = langCode;
+    }
+    utt.rate = parseFloat(ttsSpeed.value) * 0.85; // slightly slower for clarity
+
+    // Visual feedback: pulse the button while speaking
+    pronounceBtn.classList.add("pronounce-active");
+    utt.onend = utt.onerror = () => pronounceBtn.classList.remove("pronounce-active");
+
+    synth.speak(utt);
   }
 
   function stopSpeech() {
