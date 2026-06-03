@@ -241,7 +241,36 @@ The script walks through four steps interactively:
 1. Downloads and installs the release binary to `/opt/lingua-pi/`
 2. Creates and enables a `systemd` service (`linguapi`) that starts on boot
 3. Downloads ~10 texts per language from Project Gutenberg (Spanish, German, Portuguese, Italian) and Wikisource (Kannada, Telugu)
-4. Prompts to install Ollama and pull a default model (`gemma3:4b`, ~2.5 GB)
+4. Prompts to install Ollama and pull a default model (`gemma4:e4b`, ~2.5 GB)
+
+### Recommended models for Pi 5
+
+| Model | RAM | Speed | Notes |
+|-------|-----|-------|-------|
+| `gemma4:e4b` **(default)** | ~3 GB | 8–11 tok/s | Edge-optimized, 256K context, best overall |
+| `gemma3:4b` | ~3 GB | 8–11 tok/s | Solid alternative, 128K context |
+| `gemma2:2b` | ~1.5 GB | 9–10 tok/s | Good quality, lighter on RAM |
+| `gemma3:1b` | < 1 GB | 15–20 tok/s | Fastest; lower quality for analysis |
+
+LinguaPi's heaviest prompt uses ~1750 tokens — well within Ollama's 4096-token default context. Any of these models works comfortably.
+
+### Hardware tips
+
+- **Active cooling is essential** — the Pi 5 CPU throttles hard under sustained inference without a fan or heatsink, cutting tokens/s significantly
+- **NVMe SSD HAT** — reduces model cold-start from ~45 s to ~8 s
+- **Raspberry Pi AI Kit (~$70)** — adds a Hailo-8L accelerator HAT for reduced latency
+
+### Faster inference without Ollama (llamafile)
+
+[Llamafile](https://github.com/Mozilla-Ocho/llamafile) is 3–4× faster than Ollama and 30–40% more power-efficient on ARM. It exposes an OpenAI-compatible API, so LinguaPi works with it out of the box — no code changes:
+
+```bash
+# Download a model's llamafile (example: Mistral 7B)
+wget https://huggingface.co/.../model.llamafile
+chmod +x model.llamafile && ./model.llamafile --port 8081 --server
+```
+
+Then in LinguaPi Settings: set **Provider → openai**, **Endpoint → http://localhost:8081**.
 
 **Options (environment variables):**
 

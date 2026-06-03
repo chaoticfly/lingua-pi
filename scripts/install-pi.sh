@@ -29,7 +29,7 @@ BIN_LINK="/usr/local/bin/lingua-pi"
 BOOKS_PER_LANG="${BOOKS_PER_LANG:-10}"
 SKIP_CORPUS="${SKIP_CORPUS:-0}"
 SKIP_OLLAMA="${SKIP_OLLAMA:-0}"
-DEFAULT_MODEL="gemma3:4b"
+DEFAULT_MODEL="gemma4:e4b"
 
 # ── Colours ─────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
