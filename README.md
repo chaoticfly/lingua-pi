@@ -159,6 +159,34 @@ Config lives at `~/.linguapi/config.json`. All fields can be changed live from t
 
 ---
 
+## Offline corpus (recommended)
+
+The "Novels & Literature" category fetches books from Project Gutenberg at runtime by default. For faster, fully-offline generation with much more variety, download a local corpus first:
+
+```bash
+# macOS / Linux — all supported languages (default: 50 books each)
+bash scripts/download-corpus.sh
+
+# Specific languages only
+bash scripts/download-corpus.sh Spanish German French
+
+# More books
+BOOKS_PER_LANG=200 bash scripts/download-corpus.sh Spanish
+```
+
+```powershell
+# Windows
+.\scripts\download-corpus.ps1
+.\scripts\download-corpus.ps1 Spanish German
+.\scripts\download-corpus.ps1 -BooksPerLang 200 Spanish
+```
+
+Books are stored in `~/.linguapi/corpus/{lang_code}/pg{id}.txt`. Once present, LinguaPi automatically prefers local files and picks a random passage from anywhere in the full book text — much more variety than live fetches, which are limited to the opening chapters due to bandwidth constraints. The internet fallback remains active for languages without a local corpus.
+
+Re-run the script whenever you want fresher content. Already-downloaded books are skipped automatically; use `--force` / `-Force` to re-download everything.
+
+---
+
 ## Data storage
 
 All data is stored in `~/.linguapi/`:

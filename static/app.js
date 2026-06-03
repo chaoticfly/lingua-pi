@@ -495,12 +495,23 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  const passageSource = document.getElementById("passage-source");
+
   // Load paragraph content into the active view
   function loadPassageData(data) {
     currentPassage = data;
     passageTitle.textContent = data.title;
     passageCategory.textContent = data.category || "General";
     englishTranslation.textContent = data.translation;
+
+    // Source attribution (news / Wikipedia / Gutenberg)
+    if (data.source) {
+      passageSource.textContent = `Source: ${data.source}`;
+      passageSource.href = data.source_url || "#";
+      passageSource.classList.remove("hidden");
+    } else {
+      passageSource.classList.add("hidden");
+    }
 
     // Enable speech controls
     ttsPlayBtn.disabled = false;
@@ -558,7 +569,7 @@ document.addEventListener("DOMContentLoaded", () => {
           document.querySelectorAll(".word-span").forEach(w => w.classList.remove("active-word"));
           span.classList.add("active-word");
           
-          analyzeWordOrPhrase(cleanWord);
+          analyzeWordOrPhrase(cleanWord, false);
         });
         
         containerElement.appendChild(span);
@@ -576,12 +587,13 @@ document.addEventListener("DOMContentLoaded", () => {
       document.querySelectorAll(".word-span").forEach(w => w.classList.remove("active-word"));
       
       // Analyze the phrase
-      analyzeWordOrPhrase(selectedText);
+      analyzeWordOrPhrase(selectedText, true);
     }
   }
 
   // Trigger Backend Analysis
-  async function analyzeWordOrPhrase(targetText) {
+  // isPhrase: true when the user selected multiple words; hides the conjugation table.
+  async function analyzeWordOrPhrase(targetText, isPhrase = false) {
     if (!currentPassage) return;
 
     if (!connectionHealthy) {
@@ -609,7 +621,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const data = await response.json();
       if (response.ok) {
-        renderAnalysisResults(data);
+        renderAnalysisResults(data, isPhrase);
       } else {
         showToast(data.error || "Analysis failed", "error");
         resetAnalyzer();
@@ -623,7 +635,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Render Grammar Breakdown details
-  function renderAnalysisResults(data) {
+  function renderAnalysisResults(data, isPhrase = false) {
     analyzerLoading.classList.add("hidden");
     analyzerResults.classList.remove("hidden");
 
@@ -679,9 +691,9 @@ document.addEventListener("DOMContentLoaded", () => {
       resultUsages.innerHTML = `<p style="color: var(--text-subtle); margin:0; font-size:0.9rem;">No examples loaded</p>`;
     }
 
-    // Conjugation Table
+    // Conjugation Table — only for single-word lookups, not phrase translations
     resultConjugationTable.innerHTML = "";
-    if (data.conjugation_table && data.conjugation_table.length > 0) {
+    if (!isPhrase && data.conjugation_table && data.conjugation_table.length > 0) {
       resultConjugationBlock.classList.remove("hidden");
 
       // Build a matrix: collect all unique persons (rows) in order from first tense

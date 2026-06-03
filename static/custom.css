@@ -185,6 +185,13 @@ header {
   flex: 1;
 }
 
+/* Without min-width: 0 a grid item defaults to min-width: auto, which lets
+   a nowrap table inside the analyzer blow the column wider than its 1fr share
+   instead of letting overflow-x: auto scroll it within the column. */
+.analyzer-section {
+  min-width: 0;
+}
+
 /* Card Header */
 .card-header {
   display: flex;
@@ -219,6 +226,27 @@ header {
   margin: 0;
   font-size: 1.5rem;
   line-height: 1.25;
+}
+
+.passage-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.3rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  border-bottom: 1px dashed var(--border);
+  transition: color 0.15s, border-color 0.15s;
+}
+.passage-source::after {
+  content: "↗";
+  font-size: 0.65rem;
+  opacity: 0.7;
+}
+.passage-source:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 /* TTS Controls */

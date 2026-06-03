@@ -51,10 +51,12 @@ type OpenAIChatResponse struct {
 // Result structs for backend handlers
 type ParagraphResult struct {
 	Text            string `json:"text"`
-	Transliteration string `json:"transliteration"` // Added for non-latin transliterations
+	Transliteration string `json:"transliteration"`
 	Translation     string `json:"translation"`
 	Title           string `json:"title"`
 	Category        string `json:"category"`
+	Source          string `json:"source,omitempty"`     // display name: "El País", "Wikipedia", etc.
+	SourceURL       string `json:"source_url,omitempty"` // link to original article/page
 }
 
 type UsageExample struct {
@@ -206,23 +208,95 @@ func difficultyGuidelines(level DifficultyLevel) string {
 	}
 }
 
-// GenerateParagraph generates a random text paragraph in the target language and translates it
+// GenerateParagraph fetches real content for news/culture/novels and uses the LLM to adapt
+// it to the requested difficulty. For stories (or when all sources fail), falls back to pure
+// LLM generation so the app always produces output.
 func GenerateParagraph(category, language string, difficulty DifficultyLevel) (*ParagraphResult, error) {
 	if language == "" {
 		language = CurrentConfig.Language
 	}
-
 	if category == "" || category == "random" {
 		categories := []string{"stories", "culture", "novels", "news"}
-		idx := time.Now().UnixNano() % int64(len(categories))
-		category = categories[idx]
+		category = categories[time.Now().UnixNano()%int64(len(categories))]
 	}
-
 	if difficulty < Beginner || difficulty > Advanced {
 		difficulty = Intermediate
 	}
 
-	// Dynamic instruction for non-Latin script languages (Kannada, Telugu)
+	// For categories that have real sources, try fetching first.
+	if category == "news" || category == "novels" || category == "stories" || category == "culture" {
+		fetched, err := FetchRealContent(category, language)
+		if err == nil && fetched != nil {
+			result, adaptErr := adaptRealContent(fetched, category, language, difficulty)
+			if adaptErr == nil {
+				return result, nil
+			}
+			log.Printf("Content adaptation failed (%v), falling back to LLM generation", adaptErr)
+		} else {
+			log.Printf("Content fetch failed (%v), falling back to LLM generation", err)
+		}
+	}
+
+	return generateFromScratch(category, language, difficulty)
+}
+
+// adaptRealContent asks the LLM to turn fetched real-world text into a graded learning passage.
+func adaptRealContent(fetched *FetchedContent, category, language string, difficulty DifficultyLevel) (*ParagraphResult, error) {
+	isNonLatin := strings.ToLower(language) == "kannada" || strings.ToLower(language) == "telugu"
+
+	// Hard cap: no fetcher should ever send more than 2000 chars to the LLM.
+	// This is a belt-and-suspenders guard against context-window overflows.
+	sourceText := truncateToSentence(fetched.Text, 2000)
+
+	systemPrompt := fmt.Sprintf(`You are an expert %s language teacher creating reading material for learners.
+You will receive a real text (news article, Wikipedia article, or literary excerpt) in %s.
+Adapt it into a short, self-contained learning passage at the requested difficulty level.
+You MUST respond with a valid JSON object only. Do NOT include markdown code blocks.
+JSON structure:
+{
+  "text": "The adapted %s passage in native script.",
+  "transliteration": "Phonetic English transliteration — ONLY for non-Latin scripts (Kannada, Telugu). Empty string for all other languages.",
+  "translation": "Accurate, natural English translation of the adapted passage.",
+  "title": "A short descriptive English title (3–6 words).",
+  "category": "%s"
+}`, language, language, language, category)
+
+	userPrompt := fmt.Sprintf(`Source: "%s" (%s)
+
+Original text in %s:
+%s
+
+Adapt this into a learning passage for %s speakers. Guidelines:
+1. %s
+2. Preserve authentic facts, names, and cultural context from the source — do not invent details.
+3. Produce a single coherent passage; do not add unrelated content.
+4. Output MUST be a single JSON object.`,
+		fetched.Title, fetched.SourceName,
+		language, sourceText,
+		language, difficultyGuidelines(difficulty))
+
+	if isNonLatin {
+		userPrompt += fmt.Sprintf("\n5. Fill the 'transliteration' field with phonetic English pronunciation of the %s text.", language)
+	}
+
+	content, err := CallLLM(systemPrompt, userPrompt, true)
+	if err != nil {
+		return nil, err
+	}
+	content = cleanJSONString(content)
+
+	var result ParagraphResult
+	if err := json.Unmarshal([]byte(content), &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal adapted content JSON: %v, raw: %s", err, content)
+	}
+
+	result.Source = fetched.SourceName
+	result.SourceURL = fetched.SourceURL
+	return &result, nil
+}
+
+// generateFromScratch asks the LLM to invent a passage from scratch (stories, or when fetch fails).
+func generateFromScratch(category, language string, difficulty DifficultyLevel) (*ParagraphResult, error) {
 	isNonLatin := strings.ToLower(language) == "kannada" || strings.ToLower(language) == "telugu"
 
 	systemPrompt := fmt.Sprintf(`You are an expert language teacher specializing in teaching %s to English speakers.
@@ -231,7 +305,7 @@ You MUST respond with a valid JSON object only. Do NOT include markdown code blo
 JSON structure:
 {
   "text": "The %s text in the native script (using proper characters).",
-  "transliteration": "Phonetic transliteration of the text using English characters so English speakers can read the pronunciation. IMPORTANT: ONLY write this transliteration if the target language uses a non-Latin script (like Kannada or Telugu). For Latin-script languages (German, Spanish, Portuguese, Italian), leave this field empty \"\".",
+  "transliteration": "Phonetic transliteration using English characters. ONLY for non-Latin scripts (Kannada, Telugu). Empty string for Latin-script languages.",
   "translation": "Accurate, natural English translation",
   "title": "A short descriptive title in English",
   "category": "The category of the text (e.g. story, culture, novel, news)"
@@ -240,25 +314,24 @@ JSON structure:
 	userPrompt := fmt.Sprintf(`Generate a reading paragraph in %s from the "%s" category.
 Guidelines:
 1. %s
-2. Make sure the content is interesting and culturally relevant.
-3. Output MUST be formatted as a single JSON object.`, language, category, difficultyGuidelines(difficulty))
+2. Make the content interesting and culturally relevant.
+3. Use varied scenarios, characters, and settings — avoid clichés and stock names.
+4. Output MUST be a single JSON object.`, language, category, difficultyGuidelines(difficulty))
 
 	if isNonLatin {
-		userPrompt += fmt.Sprintf("\n4. Since %s is a non-Latin script, make sure to fill the 'transliteration' field with the exact phonetic English pronunciation of the text.", language)
+		userPrompt += fmt.Sprintf("\n5. Fill the 'transliteration' field with phonetic English pronunciation of the %s text.", language)
 	}
 
 	content, err := CallLLM(systemPrompt, userPrompt, true)
 	if err != nil {
 		return nil, err
 	}
-
 	content = cleanJSONString(content)
 
 	var result ParagraphResult
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal paragraph JSON: %v, response content: %s", err, content)
+		return nil, fmt.Errorf("failed to unmarshal paragraph JSON: %v, raw: %s", err, content)
 	}
-
 	return &result, nil
 }
 
