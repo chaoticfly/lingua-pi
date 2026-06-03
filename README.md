@@ -226,37 +226,51 @@ If you have an existing `history.json` from an earlier version, it is automatica
 
 ---
 
-## Raspberry Pi notes
+## Raspberry Pi setup
 
-The easiest path is to download the `linux-arm64` binary from the releases page and run the one-liner installer on the Pi itself.
+The Pi installer does everything in one script: downloads the `linux-arm64` binary, installs it as a systemd service, downloads a starter corpus from Gutenberg and Wikisource, and optionally installs Ollama.
 
-If you prefer to build from source, the project uses `modernc.org/sqlite` — a pure Go SQLite driver that requires no CGO and cross-compiles cleanly:
+**Requires a 64-bit OS** — Raspberry Pi OS (64-bit), Ubuntu 22.04+, or equivalent.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/chaoticfly/lingua-pi/master/scripts/install-pi.sh | bash
+```
+
+The script walks through four steps interactively:
+
+1. Downloads and installs the release binary to `/opt/lingua-pi/`
+2. Creates and enables a `systemd` service (`linguapi`) that starts on boot
+3. Downloads ~10 texts per language from Project Gutenberg (Spanish, German, Portuguese, Italian) and Wikisource (Kannada, Telugu)
+4. Prompts to install Ollama and pull a default model (`gemma3:4b`, ~2.5 GB)
+
+**Options (environment variables):**
+
+```bash
+VERSION=v1.0.0     # pin a specific release (default: latest)
+BOOKS_PER_LANG=25  # download more corpus texts (default: 10)
+SKIP_CORPUS=1      # skip corpus download
+SKIP_OLLAMA=1      # skip Ollama install prompt
+```
+
+Example: install with a larger corpus, skip Ollama:
+```bash
+BOOKS_PER_LANG=50 SKIP_OLLAMA=1 bash <(curl -fsSL .../install-pi.sh)
+```
+
+After install, LinguaPi is available at `http://<pi-ip>:8080` from any device on your network.
+
+```
+sudo journalctl -u linguapi -f       # live logs
+sudo systemctl restart linguapi      # restart
+sudo systemctl stop linguapi         # stop
+```
+
+### Build from source (optional)
 
 ```bash
 GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o lingua-pi
 scp lingua-pi pi@raspberrypi.local:~/
-scp -r static pi@raspberrypi.local:~/
-```
-
-To run on boot, create a systemd service at `/etc/systemd/system/linguapi.service`:
-
-```ini
-[Unit]
-Description=LinguaPi
-After=network.target
-
-[Service]
-ExecStart=/home/pi/lingua-pi
-WorkingDirectory=/home/pi
-Restart=on-failure
-User=pi
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl enable --now linguapi
+scp -r static  pi@raspberrypi.local:~/
 ```
 
 ---
