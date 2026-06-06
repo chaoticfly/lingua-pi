@@ -339,7 +339,6 @@ header {
   line-height: 1.75;
   color: var(--text-main);
   user-select: text;
-  touch-action: pan-y;
 }
 
 .script-label {
@@ -368,6 +367,12 @@ header {
   border-bottom: 2px solid transparent;
   -webkit-text-size-adjust: 100%;
   touch-action: manipulation;
+}
+
+.word-span.anchor-word {
+  background: rgba(251, 146, 60, 0.25);
+  border-bottom-color: rgb(251, 146, 60);
+  color: var(--text-main);
 }
 
 .word-span:hover {
@@ -649,6 +654,8 @@ details#translation-details {
 
 .analyzer-state-results {
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   flex: 1;
   padding-right: 0.25rem;
 }

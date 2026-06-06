@@ -537,23 +537,18 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Phrase selection — debounced selectionchange works on both desktop and mobile
-  // (touchend fires before the browser commits a mobile long-press selection)
-  let selectionTimer = null;
-  document.addEventListener("selectionchange", () => {
-    clearTimeout(selectionTimer);
-    selectionTimer = setTimeout(() => {
-      const selection = window.getSelection();
-      const selectedText = selection?.toString().trim();
-      if (!selectedText || !selectedText.includes(" ")) return;
+  // Tap-tap phrase selection:
+  // First tap → anchor (orange). Second tap different word → range analysis.
+  // Second tap same word → single word analysis. Outside tap → cancel.
+  let anchorWord = null;
+  let lastWordTapAt = 0; // debounce phantom/ghost clicks on mobile
 
-      const anchor = selection.anchorNode?.parentElement;
-      const passages = [passagePrimary, passageSecondary];
-      if (!passages.some(p => p.contains(anchor))) return;
-
-      document.querySelectorAll(".word-span").forEach(w => w.classList.remove("active-word"));
-      analyzeWordOrPhrase(selectedText, true);
-    }, 400);
+  document.addEventListener("click", (e) => {
+    if (!anchorWord) return;
+    if (!e.target.closest(".word-span")) {
+      anchorWord.classList.remove("anchor-word");
+      anchorWord = null;
+    }
   });
 
   // Close analyzer panel
@@ -700,6 +695,11 @@ document.addEventListener("DOMContentLoaded", () => {
     
     // Reset Analyzer view
     resetAnalyzer();
+
+    if (!localStorage.getItem("linguapi_tap_hint_shown")) {
+      localStorage.setItem("linguapi_tap_hint_shown", "1");
+      showToast("Tip: tap a word to anchor it, then tap another to analyze a phrase.", "info");
+    }
   }
 
   // Split paragraph into click-actionable words
@@ -723,11 +723,35 @@ document.addEventListener("DOMContentLoaded", () => {
         
         span.addEventListener("click", (e) => {
           e.stopPropagation();
-          // Remove active class from all other words in both text blocks
-          document.querySelectorAll(".word-span").forEach(w => w.classList.remove("active-word"));
-          span.classList.add("active-word");
-          
-          analyzeWordOrPhrase(cleanWord, false);
+          // Debounce: mobile browsers fire phantom clicks after a tap;
+          // ignore any click within 350 ms of the last handled one.
+          const now = Date.now();
+          if (now - lastWordTapAt < 350) return;
+          lastWordTapAt = now;
+
+          const all = [...document.querySelectorAll(".word-span")];
+
+          if (anchorWord && anchorWord !== span) {
+            // Second tap — analyze range
+            const si = all.indexOf(anchorWord), ei = all.indexOf(span);
+            const lo = Math.min(si, ei), hi = Math.max(si, ei);
+            const text = all.slice(lo, hi + 1).map(w => w.textContent).join(" ").trim();
+            all.forEach(w => w.classList.remove("active-word", "anchor-word"));
+            all.slice(lo, hi + 1).forEach(w => w.classList.add("active-word"));
+            anchorWord = null;
+            analyzeWordOrPhrase(text, true);
+          } else if (anchorWord === span) {
+            // Tap same word — single word analysis
+            all.forEach(w => w.classList.remove("active-word", "anchor-word"));
+            span.classList.add("active-word");
+            anchorWord = null;
+            analyzeWordOrPhrase(cleanWord, false);
+          } else {
+            // First tap — set anchor
+            all.forEach(w => w.classList.remove("active-word", "anchor-word"));
+            span.classList.add("anchor-word");
+            anchorWord = span;
+          }
         });
         
         containerElement.appendChild(span);
@@ -893,11 +917,13 @@ document.addEventListener("DOMContentLoaded", () => {
   function showAnalyzerPanel() {
     analyzerPanel.classList.add("active");
     sheetBackdrop.classList.add("active");
+    document.body.style.overflow = "hidden";
   }
 
   function hideAnalyzerPanel() {
     analyzerPanel.classList.remove("active");
     sheetBackdrop.classList.remove("active");
+    document.body.style.overflow = "";
     document.querySelectorAll(".word-span").forEach(w => w.classList.remove("active-word"));
   }
 
