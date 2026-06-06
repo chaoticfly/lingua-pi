@@ -726,7 +726,7 @@ document.addEventListener("DOMContentLoaded", () => {
           // Debounce: mobile browsers fire phantom clicks after a tap;
           // ignore any click within 350 ms of the last handled one.
           const now = Date.now();
-          if (now - lastWordTapAt < 350) return;
+          if (now - lastWordTapAt < 80) return;
           lastWordTapAt = now;
 
           const all = [...document.querySelectorAll(".word-span")];
