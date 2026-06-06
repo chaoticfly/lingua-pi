@@ -6,7 +6,7 @@
 #   2. Installs to /opt/lingua-pi/
 #   3. Creates and enables a systemd service
 #   4. Downloads a starter corpus (Gutenberg + Wikisource)
-#   5. Optionally installs Ollama and pulls a model
+#   5. Sets up an LLM backend: llamafile (default) or Ollama
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/chaoticfly/lingua-pi/master/scripts/install-pi.sh | bash
@@ -14,7 +14,7 @@
 #   With options:
 #   VERSION=v1.0.0 BOOKS_PER_LANG=25 bash install-pi.sh
 #   SKIP_CORPUS=1  bash install-pi.sh   # skip corpus download
-#   SKIP_OLLAMA=1  bash install-pi.sh   # skip Ollama prompt
+#   SKIP_OLLAMA=1  bash install-pi.sh   # skip LLM setup entirely
 #
 # Requires: curl, python3, systemd
 
@@ -30,6 +30,14 @@ BOOKS_PER_LANG="${BOOKS_PER_LANG:-10}"
 SKIP_CORPUS="${SKIP_CORPUS:-0}"
 SKIP_OLLAMA="${SKIP_OLLAMA:-0}"
 DEFAULT_MODEL="gemma4:e4b"
+
+LLAMAFILE_URL="https://huggingface.co/mozilla-ai/llamafile_0.10/resolve/main/gemma-4-E4B-it-Q5_K_M.llamafile"
+LLAMAFILE_NAME="gemma-4-E4B-it-Q5_K_M.llamafile"
+LLAMAFILE_MODEL="gemma-4-E4B-it-Q5_K_M"
+LLAMAFILE_PORT="8081"
+
+# Set by prompt_llm_backend(); used across steps
+LLM_BACKEND="llamafile"
 
 # ── Colours ─────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -75,7 +83,6 @@ resolve_version() {
 
 # Determine which user to run the service as (not root)
 service_user() {
-    # SUDO_USER is set when the script is invoked with sudo
     if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != "root" ]]; then
         echo "$SUDO_USER"
     elif id pi &>/dev/null; then
@@ -83,6 +90,39 @@ service_user() {
     else
         echo "$(logname 2>/dev/null || echo root)"
     fi
+}
+
+# ── LLM backend prompt ───────────────────────────────────────────────────────
+# Asks the user which backend to use and sets LLM_BACKEND="llamafile"|"ollama".
+# Called before the service install so the systemd unit can reference the right dep.
+prompt_llm_backend() {
+    if [[ "$SKIP_OLLAMA" == "1" ]]; then
+        LLM_BACKEND="skip"
+        return
+    fi
+
+    echo ""
+    if command -v ollama &>/dev/null; then
+        success "Ollama detected: $(ollama --version 2>/dev/null || echo 'installed')"
+        echo ""
+        echo "  LinguaPi supports two local LLM backends:"
+        echo "    [L] llamafile  — 3-4× faster, lower power, single .llamafile executable"
+        echo "    [O] Ollama     — already installed, familiar 'ollama pull' workflow"
+        read -r -p "  Which backend do you want to use? [L/o] " choice
+    else
+        echo "  No LLM backend detected. Choose one to set up:"
+        echo "    [L] llamafile  — fast single executable, no separate server to manage"
+        echo "    [O] Ollama     — install Ollama and pull ${DEFAULT_MODEL} (~2.5 GB)"
+        read -r -p "  Which backend do you want to use? [L/o] " choice
+    fi
+
+    choice="${choice:-L}"
+    if [[ "$choice" =~ ^[Oo] ]]; then
+        LLM_BACKEND="ollama"
+    else
+        LLM_BACKEND="llamafile"
+    fi
+    info "Selected backend: ${LLM_BACKEND}"
 }
 
 # ── Step 1: Download & install binary ───────────────────────────────────────
@@ -104,7 +144,6 @@ install_binary() {
     sudo chmod +x "${INSTALL_DIR}/lingua-pi"
     sudo cp -r "${WORK}/lingua-pi/static"     "${INSTALL_DIR}/static"
 
-    # Wrapper at /usr/local/bin so users can type `lingua-pi` from anywhere
     sudo tee "$BIN_LINK" > /dev/null <<WRAPPER
 #!/usr/bin/env bash
 cd ${INSTALL_DIR}
@@ -120,12 +159,23 @@ install_service() {
     local svc_home
     svc_home="$(eval echo "~${svc_user}")"
 
+    # Build the After= / Wants= lines based on chosen backend
+    local after_dep="network.target"
+    local wants_dep=""
+    if [[ "$LLM_BACKEND" == "ollama" ]]; then
+        after_dep="network.target ollama.service"
+        wants_dep="Wants=ollama.service"
+    elif [[ "$LLM_BACKEND" == "llamafile" ]]; then
+        after_dep="network.target llamafile.service"
+        wants_dep="Wants=llamafile.service"
+    fi
+
     info "Creating service (user: ${svc_user})..."
     sudo tee "$SERVICE_FILE" > /dev/null <<SERVICE
 [Unit]
 Description=LinguaPi Language Learning Server
-After=network.target ollama.service
-Wants=ollama.service
+After=${after_dep}
+${wants_dep}
 
 [Service]
 ExecStart=${INSTALL_DIR}/lingua-pi
@@ -151,7 +201,6 @@ download_corpus() {
 
     info "Fetching corpus download script (${version})..."
 
-    # Try the exact release tag first, fall back to master
     local raw_base="https://raw.githubusercontent.com/${REPO}"
     curl -fsSL "${raw_base}/${version}/scripts/download-corpus.sh" -o "$corpus_script" 2>/dev/null \
         || curl -fsSL "${raw_base}/master/scripts/download-corpus.sh"  -o "$corpus_script" \
@@ -162,32 +211,120 @@ download_corpus() {
     BOOKS_PER_LANG="$BOOKS_PER_LANG" bash "$corpus_script"
 }
 
-# ── Step 4: Optional Ollama install ─────────────────────────────────────────
-maybe_install_ollama() {
-    if command -v ollama &>/dev/null; then
-        success "Ollama already installed: $(ollama --version 2>/dev/null || echo 'unknown version')"
+# ── Step 4: LLM backend setup ────────────────────────────────────────────────
+
+# Write ~/.linguapi/config.json for the given service user (skips if file exists)
+write_config() {
+    local svc_home="$1" provider="$2" endpoint="$3" model="$4"
+    local config_dir="${svc_home}/.linguapi"
+    local config_path="${config_dir}/config.json"
+
+    mkdir -p "$config_dir"
+    if [[ -f "$config_path" ]]; then
+        warn "Config already exists at ${config_path} — leaving it unchanged."
+        warn "Edit it manually to set: provider=${provider}, endpoint=${endpoint}, model=${model}"
         return
     fi
 
-    echo ""
-    read -r -p "  Install Ollama now? (recommended) [Y/n] " reply
-    reply="${reply:-Y}"
-    if [[ "$reply" =~ ^[Yy] ]]; then
+    cat > "$config_path" <<CONF
+{
+  "server_port": 8080,
+  "language": "Spanish",
+  "llm_provider": "${provider}",
+  "llm_endpoint": "${endpoint}",
+  "llm_model": "${model}",
+  "llm_api_key": ""
+}
+CONF
+    success "Config written: ${config_path}"
+}
+
+# Install a systemd service that launches the llamafile server
+install_llamafile_service() {
+    local svc_user="$1" svc_home="$2" llamafile_path="$3"
+    local llamafile_service="/etc/systemd/system/llamafile.service"
+
+    info "Creating llamafile systemd service..."
+    sudo tee "$llamafile_service" > /dev/null <<SERVICE
+[Unit]
+Description=Llamafile LLM Server (${LLAMAFILE_MODEL})
+After=network.target
+
+[Service]
+ExecStart=${llamafile_path} --server --port ${LLAMAFILE_PORT} --host 127.0.0.1 -ngl 0
+WorkingDirectory=${svc_home}
+Restart=on-failure
+RestartSec=5
+User=${svc_user}
+Environment=HOME=${svc_home}
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable llamafile
+    success "Llamafile service enabled (port ${LLAMAFILE_PORT})."
+}
+
+setup_llamafile_backend() {
+    local svc_user="$1"
+    local svc_home
+    svc_home="$(eval echo "~${svc_user}")"
+    local llamafile_path="${svc_home}/.linguapi/${LLAMAFILE_NAME}"
+
+    mkdir -p "${svc_home}/.linguapi"
+
+    if [[ -f "$llamafile_path" ]]; then
+        success "llamafile already present: ${llamafile_path}"
+    else
+        info "Downloading ${LLAMAFILE_NAME} (~3 GB) from HuggingFace..."
+        info "URL: ${LLAMAFILE_URL}"
+        curl -fsSL --progress-bar "$LLAMAFILE_URL" -o "$llamafile_path" \
+            || die "Failed to download llamafile. Check your connection or download manually to ${llamafile_path}"
+        success "llamafile downloaded."
+    fi
+
+    chmod +x "$llamafile_path"
+    success "llamafile executable: ${llamafile_path}"
+
+    write_config "$svc_home" "llamafile" "http://localhost:${LLAMAFILE_PORT}" "$LLAMAFILE_MODEL"
+    install_llamafile_service "$svc_user" "$svc_home" "$llamafile_path"
+}
+
+setup_ollama_backend() {
+    local svc_user="$1"
+    local svc_home
+    svc_home="$(eval echo "~${svc_user}")"
+
+    if ! command -v ollama &>/dev/null; then
         info "Installing Ollama..."
         curl -fsSL https://ollama.com/install.sh | sh
         success "Ollama installed."
+    fi
 
+    # Check if the default model is already pulled
+    local model_present=0
+    if ollama list 2>/dev/null | grep -q "${DEFAULT_MODEL}"; then
+        model_present=1
+    fi
+
+    if [[ "$model_present" -eq 1 ]]; then
+        success "Model already available: ${DEFAULT_MODEL}"
+    else
         echo ""
-        read -r -p "  Pull default model '${DEFAULT_MODEL}'? (~2.5 GB) [Y/n] " mreply
+        read -r -p "  Pull model '${DEFAULT_MODEL}'? (~2.5 GB) [Y/n] " mreply
         mreply="${mreply:-Y}"
         if [[ "$mreply" =~ ^[Yy] ]]; then
             info "Pulling ${DEFAULT_MODEL} (this will take a few minutes)..."
             ollama pull "$DEFAULT_MODEL"
             success "Model ready: ${DEFAULT_MODEL}"
+        else
+            warn "Skipping model pull. Run later: ollama pull ${DEFAULT_MODEL}"
         fi
-    else
-        warn "Skipping Ollama install. Pull a model later with: ollama pull ${DEFAULT_MODEL}"
     fi
+
+    write_config "$svc_home" "ollama" "http://localhost:11434" "$DEFAULT_MODEL"
 }
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -204,12 +341,21 @@ main() {
     local svc_user; svc_user=$(service_user)
     local local_ip; local_ip=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
 
+    # Prompt for LLM backend choice before any steps so the service unit
+    # can reference the correct dependency (llamafile.service or ollama.service)
+    if [[ "$SKIP_OLLAMA" != "1" ]]; then
+        prompt_llm_backend
+    else
+        LLM_BACKEND="skip"
+    fi
+
     echo ""
     echo "  Version      : ${version}"
     echo "  Architecture : linux-${arch}"
     echo "  Install dir  : ${INSTALL_DIR}"
     echo "  Service user : ${svc_user}"
     echo "  Corpus books : ${BOOKS_PER_LANG} per language"
+    echo "  LLM backend  : ${LLM_BACKEND}"
     echo ""
 
     # 1. Binary
@@ -231,15 +377,25 @@ main() {
         info "Run later: bash /opt/lingua-pi/scripts/download-corpus.sh"
     fi
 
-    # 4. Ollama
-    if [[ "$SKIP_OLLAMA" != "1" ]]; then
-        step "Step 4/4 — Ollama LLM backend"
-        maybe_install_ollama
+    # 4. LLM backend
+    step "Step 4/4 — LLM backend setup"
+    if [[ "$LLM_BACKEND" == "llamafile" ]]; then
+        setup_llamafile_backend "$svc_user"
+    elif [[ "$LLM_BACKEND" == "ollama" ]]; then
+        setup_ollama_backend "$svc_user"
     else
-        warn "Step 4/4 — Ollama setup skipped (SKIP_OLLAMA=1)"
+        warn "LLM setup skipped (SKIP_OLLAMA=1)"
+        info "Configure manually via the Settings panel or ~/.linguapi/config.json"
     fi
 
-    # Start service
+    # Start llamafile service first if applicable
+    if [[ "$LLM_BACKEND" == "llamafile" ]]; then
+        echo ""
+        info "Starting llamafile service..."
+        sudo systemctl start llamafile || warn "llamafile service failed to start — check: sudo journalctl -u llamafile -f"
+    fi
+
+    # Start LinguaPi
     echo ""
     info "Starting LinguaPi service..."
     sudo systemctl start "$SERVICE_NAME"
@@ -257,7 +413,12 @@ main() {
     echo "  Stop     : sudo systemctl stop ${SERVICE_NAME}"
     echo "  Uninstall: sudo rm -rf ${INSTALL_DIR} ${BIN_LINK} ${SERVICE_FILE}"
     echo ""
-    echo -e "${DIM}  Model can be changed any time from the Settings panel in the UI.${NC}"
+    if [[ "$LLM_BACKEND" == "llamafile" ]]; then
+        echo "  Llamafile logs   : sudo journalctl -u llamafile -f"
+        echo "  Llamafile restart: sudo systemctl restart llamafile"
+        echo ""
+    fi
+    echo -e "${DIM}  Provider and model can be changed any time from the Settings panel in the UI.${NC}"
     echo ""
 }
 

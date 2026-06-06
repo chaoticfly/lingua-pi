@@ -10,7 +10,7 @@ import (
 type Config struct {
 	ServerPort  int    `json:"server_port"`
 	Language    string `json:"language"`
-	LlmProvider string `json:"llm_provider"` // "ollama" or "openai"
+	LlmProvider string `json:"llm_provider"` // "ollama", "openai", or "llamafile"
 	LlmEndpoint string `json:"llm_endpoint"`
 	LlmModel    string `json:"llm_model"`
 	LlmApiKey   string `json:"llm_api_key"`
@@ -85,16 +85,22 @@ func LoadConfig() error {
 		CurrentConfig.LlmProvider = "ollama"
 	}
 	if CurrentConfig.LlmEndpoint == "" {
-		if CurrentConfig.LlmProvider == "ollama" {
+		switch CurrentConfig.LlmProvider {
+		case "ollama":
 			CurrentConfig.LlmEndpoint = "http://localhost:11434"
-		} else {
+		case "llamafile":
+			CurrentConfig.LlmEndpoint = "http://localhost:8081"
+		default:
 			CurrentConfig.LlmEndpoint = "https://api.openai.com/v1"
 		}
 	}
 	if CurrentConfig.LlmModel == "" {
-		if CurrentConfig.LlmProvider == "ollama" {
+		switch CurrentConfig.LlmProvider {
+		case "ollama":
 			CurrentConfig.LlmModel = "gemma4:e4b"
-		} else {
+		case "llamafile":
+			CurrentConfig.LlmModel = "gemma-4-E4B-it-Q5_K_M"
+		default:
 			CurrentConfig.LlmModel = "gpt-4o-mini"
 		}
 	}

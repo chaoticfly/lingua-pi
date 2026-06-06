@@ -36,6 +36,23 @@ func InitDB() error {
 
 func createTables() error {
 	_, err := DB.Exec(`
+		CREATE TABLE IF NOT EXISTS users (
+			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			username      TEXT    NOT NULL UNIQUE,
+			password_hash TEXT    NOT NULL,
+			created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE TABLE IF NOT EXISTS sessions (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			token      TEXT    NOT NULL UNIQUE,
+			user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			expires_at DATETIME NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
+
 		CREATE TABLE IF NOT EXISTS history (
 			id              INTEGER PRIMARY KEY AUTOINCREMENT,
 			title           TEXT    NOT NULL,

@@ -24,14 +24,18 @@ func RegisterRoutes() {
 	http.Handle("/static/", http.StripPrefix("/static/", fs))
 
 	http.HandleFunc("/", serveIndex)
-	http.HandleFunc("/api/config", handleConfig)
-	http.HandleFunc("/api/models", handleGetModels)
 	http.HandleFunc("/api/health", handleHealth)
-	http.HandleFunc("/api/generate", handleGenerate)
-	http.HandleFunc("/api/analyze", handleAnalyze)
-	http.HandleFunc("/api/history", handleGetHistory)
-	http.HandleFunc("/api/quiz", handleQuiz)
-	http.HandleFunc("/api/quiz/result", handleQuizResult)
+	http.HandleFunc("/api/register", handleRegister)
+	http.HandleFunc("/api/login", handleLogin)
+	http.HandleFunc("/api/logout", handleLogout)
+	http.HandleFunc("/api/me", handleMe)
+	http.HandleFunc("/api/config", requireAuth(handleConfig))
+	http.HandleFunc("/api/models", requireAuth(handleGetModels))
+	http.HandleFunc("/api/generate", requireAuth(handleGenerate))
+	http.HandleFunc("/api/analyze", requireAuth(handleAnalyze))
+	http.HandleFunc("/api/history", requireAuth(handleGetHistory))
+	http.HandleFunc("/api/quiz", requireAuth(handleQuiz))
+	http.HandleFunc("/api/quiz/result", requireAuth(handleQuizResult))
 }
 
 func serveIndex(w http.ResponseWriter, r *http.Request) {
@@ -204,6 +208,13 @@ func handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		req.Language = CurrentConfig.Language
 	}
 
+	if cached, ok := getCachedAnalysis(req.Text, req.Language, req.Context); ok {
+		log.Printf("Cache hit for '%s' in %s", req.Text, req.Language)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(cached)
+		return
+	}
+
 	log.Printf("Request to analyze word/phrase: '%s' in %s", req.Text, req.Language)
 	result, err := AnalyzeText(req.Text, req.Context, req.Language)
 	if err != nil {
@@ -213,6 +224,8 @@ func handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
+
+	setCachedAnalysis(req.Text, req.Language, req.Context, result)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)

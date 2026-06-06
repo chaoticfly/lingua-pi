@@ -355,11 +355,11 @@ JSON structure:
   "synonyms": ["synonym_1_native", "synonym_2_native"],
   "usages": [
     {
-      "original": "A simple sentence using the word in its native script (with its English transliteration in parentheses if it is a non-Latin script language like Kannada or Telugu)",
+      "original": "A brand-new example sentence you invent — NOT copied or paraphrased from the context paragraph. Use the word in its native script (with English transliteration in parentheses for non-Latin scripts like Kannada or Telugu).",
       "translation": "The English translation of that sentence"
     },
     {
-      "original": "Another simple sentence using the word in its native script (with its English transliteration in parentheses if it is a non-Latin script language like Kannada or Telugu)",
+      "original": "A second brand-new example sentence from a completely different situation or topic than the first. Must not appear in the context paragraph.",
       "translation": "The English translation of that sentence"
     }
   ],
@@ -424,6 +424,28 @@ func ListAvailableModels() ([]string, error) {
 			names[i] = m.Name
 		}
 		return names, nil
+	}
+
+	if CurrentConfig.LlmProvider == "llamafile" {
+		// llamafile exposes /v1/models; fall back to the configured model name on error
+		resp, err := client.Get(strings.TrimSuffix(CurrentConfig.LlmEndpoint, "/") + "/v1/models")
+		if err != nil {
+			return []string{CurrentConfig.LlmModel}, nil
+		}
+		defer resp.Body.Close()
+		var body struct {
+			Data []struct {
+				ID string `json:"id"`
+			} `json:"data"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil || len(body.Data) == 0 {
+			return []string{CurrentConfig.LlmModel}, nil
+		}
+		ids := make([]string, len(body.Data))
+		for i, m := range body.Data {
+			ids[i] = m.ID
+		}
+		return ids, nil
 	}
 
 	// For OpenAI-compatible providers return a fixed set of common models
@@ -583,11 +605,42 @@ func CheckLLMHealth() *HealthCheckResult {
 		}
 	}
 
+	if CurrentConfig.LlmProvider == "llamafile" {
+		// llamafile exposes /v1/models (OpenAI-compatible)
+		modelsURL := strings.TrimSuffix(CurrentConfig.LlmEndpoint, "/") + "/v1/models"
+		resp, err := client.Get(modelsURL)
+		if err != nil {
+			return &HealthCheckResult{
+				Status:     "error",
+				Provider:   "llamafile",
+				Model:      CurrentConfig.LlmModel,
+				Message:    fmt.Sprintf("Cannot connect to llamafile at %s: %v", CurrentConfig.LlmEndpoint, err),
+				Suggestion: fmt.Sprintf("Make sure llamafile is running: ~/.linguapi/%s.llamafile --server --port 8081", CurrentConfig.LlmModel),
+			}
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			return &HealthCheckResult{
+				Status:   "ok",
+				Provider: "llamafile",
+				Model:    CurrentConfig.LlmModel,
+				Message:  "Connected to llamafile successfully",
+			}
+		}
+		return &HealthCheckResult{
+			Status:     "error",
+			Provider:   "llamafile",
+			Model:      CurrentConfig.LlmModel,
+			Message:    fmt.Sprintf("llamafile returned HTTP %d", resp.StatusCode),
+			Suggestion: "Check that llamafile started correctly: sudo systemctl status llamafile",
+		}
+	}
+
 	return &HealthCheckResult{
 		Status:     "error",
 		Provider:   CurrentConfig.LlmProvider,
 		Message:    fmt.Sprintf("Unknown LLM provider: %s", CurrentConfig.LlmProvider),
-		Suggestion: "Configure a valid provider (ollama or openai) in your config file.",
+		Suggestion: "Configure a valid provider (ollama, llamafile, or openai) in your config file.",
 	}
 }
 

@@ -11,6 +11,12 @@ REPO="chaoticfly/lingua-pi"
 INSTALL_DIR="/opt/lingua-pi"
 BIN_LINK="/usr/local/bin/lingua-pi"
 
+LLAMAFILE_URL="https://huggingface.co/mozilla-ai/llamafile_0.10/resolve/main/gemma-4-E4B-it-Q5_K_M.llamafile"
+LLAMAFILE_NAME="gemma-4-E4B-it-Q5_K_M.llamafile"
+LLAMAFILE_MODEL="gemma-4-E4B-it-Q5_K_M"
+LLAMAFILE_PORT="8081"
+DEFAULT_OLLAMA_MODEL="gemma4:e4b"
+
 # ── colour helpers ──────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 info()    { echo -e "${CYAN}[lingua-pi]${NC} $*"; }
@@ -59,6 +65,98 @@ resolve_version() {
     echo "$version"
 }
 
+# ── write ~/.linguapi/config.json ────────────────────────────────────────────
+write_config() {
+    local provider="$1" endpoint="$2" model="$3"
+    local config_dir="${HOME}/.linguapi"
+    local config_path="${config_dir}/config.json"
+
+    mkdir -p "$config_dir"
+    if [[ -f "$config_path" ]]; then
+        warn "Config already exists at ${config_path} — leaving unchanged."
+        warn "Edit manually to set: provider=${provider}, endpoint=${endpoint}, model=${model}"
+        return
+    fi
+
+    cat > "$config_path" <<CONF
+{
+  "server_port": 8080,
+  "language": "Spanish",
+  "llm_provider": "${provider}",
+  "llm_endpoint": "${endpoint}",
+  "llm_model": "${model}",
+  "llm_api_key": ""
+}
+CONF
+    success "Config written: ${config_path}"
+}
+
+# ── LLM backend setup ────────────────────────────────────────────────────────
+setup_llm() {
+    local llamafile_path="${HOME}/.linguapi/${LLAMAFILE_NAME}"
+
+    echo ""
+
+    local use_llamafile=0
+    if command -v ollama &>/dev/null; then
+        success "Ollama already installed: $(ollama --version 2>/dev/null || echo 'installed')"
+        echo ""
+        echo "  LinguaPi can use either:"
+        echo "    [L] llamafile  — 3-4× faster, single executable, no separate server to manage"
+        echo "    [O] Ollama     — already installed, familiar 'ollama pull' workflow"
+        printf "  Which backend? [L/o] "; read -r choice
+        choice="${choice:-L}"
+        [[ "$choice" =~ ^[Oo] ]] && use_llamafile=0 || use_llamafile=1
+    else
+        echo "  No LLM backend detected. Choose one to set up:"
+        echo "    [L] llamafile  — fast single executable, runs ${LLAMAFILE_MODEL}"
+        echo "    [O] Ollama     — install Ollama + pull ${DEFAULT_OLLAMA_MODEL} (~2.5 GB)"
+        printf "  Which backend? [L/o] "; read -r choice
+        choice="${choice:-L}"
+        [[ "$choice" =~ ^[Oo] ]] && use_llamafile=0 || use_llamafile=1
+    fi
+
+    if [[ "$use_llamafile" -eq 1 ]]; then
+        mkdir -p "${HOME}/.linguapi"
+        if [[ -f "$llamafile_path" ]]; then
+            success "llamafile already present: ${llamafile_path}"
+        else
+            info "Downloading ${LLAMAFILE_NAME} (~3 GB)..."
+            curl -fsSL --progress-bar "$LLAMAFILE_URL" -o "$llamafile_path" \
+                || die "Download failed. Check your connection or download manually to ${llamafile_path}"
+            success "llamafile downloaded."
+        fi
+        chmod +x "$llamafile_path"
+        write_config "llamafile" "http://localhost:${LLAMAFILE_PORT}" "$LLAMAFILE_MODEL"
+        echo ""
+        success "llamafile ready: ${llamafile_path}"
+        echo ""
+        echo "  Start the server with:"
+        echo "    ${llamafile_path} --server --port ${LLAMAFILE_PORT}"
+    else
+        if ! command -v ollama &>/dev/null; then
+            info "Installing Ollama..."
+            curl -fsSL https://ollama.com/install.sh | sh
+            success "Ollama installed."
+        fi
+
+        if ollama list 2>/dev/null | grep -q "${DEFAULT_OLLAMA_MODEL}"; then
+            success "Model already available: ${DEFAULT_OLLAMA_MODEL}"
+        else
+            printf "  Pull model '%s'? (~2.5 GB) [Y/n] " "$DEFAULT_OLLAMA_MODEL"; read -r mreply
+            mreply="${mreply:-Y}"
+            if [[ "$mreply" =~ ^[Yy] ]]; then
+                info "Pulling ${DEFAULT_OLLAMA_MODEL}..."
+                ollama pull "$DEFAULT_OLLAMA_MODEL"
+                success "Model ready: ${DEFAULT_OLLAMA_MODEL}"
+            else
+                warn "Skipping model pull. Run later: ollama pull ${DEFAULT_OLLAMA_MODEL}"
+            fi
+        fi
+        write_config "ollama" "http://localhost:11434" "$DEFAULT_OLLAMA_MODEL"
+    fi
+}
+
 # ── main ────────────────────────────────────────────────────────────────────
 main() {
     check_deps
@@ -105,14 +203,16 @@ exec /opt/lingua-pi/lingua-pi "$@"
 EOF
     $SUDO chmod +x "$BIN_LINK"
 
-    success "Installed! Run with: lingua-pi"
+    success "LinguaPi ${version} installed."
+
+    # ── LLM backend ──────────────────────────────────────────────────────────
+    setup_llm
+
     echo
-    echo "  Config: ~/.linguapi/config.json (created on first run)"
+    echo "  Config: ~/.linguapi/config.json"
     echo "  Data:   ~/.linguapi/linguapi.db"
-    echo
-    echo "  To start Ollama:   ollama serve"
-    echo "  To pull a model:   ollama pull gemma3:4b"
-    echo "  Then open:         http://localhost:8080"
+    echo "  Run:    lingua-pi"
+    echo "  Open:   http://localhost:8080"
     echo
     warn "To uninstall: sudo rm -rf ${INSTALL_DIR} ${BIN_LINK}"
 }

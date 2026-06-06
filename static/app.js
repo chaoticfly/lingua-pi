@@ -195,10 +195,152 @@ document.addEventListener("DOMContentLoaded", () => {
   const savedDifficulty = localStorage.getItem("linguapi_difficulty") || "2";
   difficultySelect.value = savedDifficulty;
 
+  // --- Auth ---
+  const authModal        = document.getElementById("auth-modal");
+  const tabLogin         = document.getElementById("tab-login");
+  const tabRegister      = document.getElementById("tab-register");
+  const authLoginForm    = document.getElementById("auth-login-form");
+  const authRegisterForm = document.getElementById("auth-register-form");
+  const loginUsername    = document.getElementById("login-username");
+  const loginPassword    = document.getElementById("login-password");
+  const loginError       = document.getElementById("login-error");
+  const loginSubmitBtn   = document.getElementById("login-submit-btn");
+  const regUsername      = document.getElementById("reg-username");
+  const regPassword      = document.getElementById("reg-password");
+  const registerError    = document.getElementById("register-error");
+  const registerSubmitBtn = document.getElementById("register-submit-btn");
+  const logoutBtn        = document.getElementById("logout-btn");
+  const userNavItem      = document.getElementById("user-nav-item");
+
+  tabLogin.addEventListener("click", () => {
+    tabLogin.classList.add("active");
+    tabRegister.classList.remove("active");
+    authLoginForm.classList.remove("hidden");
+    authRegisterForm.classList.add("hidden");
+    loginError.classList.add("hidden");
+  });
+
+  tabRegister.addEventListener("click", () => {
+    tabRegister.classList.add("active");
+    tabLogin.classList.remove("active");
+    authRegisterForm.classList.remove("hidden");
+    authLoginForm.classList.add("hidden");
+    registerError.classList.add("hidden");
+  });
+
+  function showAuthModal() {
+    loginUsername.value = "";
+    loginPassword.value = "";
+    regUsername.value = "";
+    regPassword.value = "";
+    loginError.classList.add("hidden");
+    registerError.classList.add("hidden");
+    tabLogin.click();
+    authModal.showModal();
+  }
+
+  function onLoggedIn() {
+    authModal.close();
+    userNavItem.classList.remove("hidden");
+  }
+
+  loginSubmitBtn.addEventListener("click", async () => {
+    const username = loginUsername.value.trim();
+    const password = loginPassword.value;
+    if (!username || !password) {
+      loginError.textContent = "Please enter username and password.";
+      loginError.classList.remove("hidden");
+      return;
+    }
+    loginSubmitBtn.disabled = true;
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        loginError.textContent = data.error || "Login failed.";
+        loginError.classList.remove("hidden");
+      } else {
+        onLoggedIn();
+        checkHealth();
+        fetchConfig();
+        fetchHistory();
+      }
+    } catch (err) {
+      loginError.textContent = "Network error.";
+      loginError.classList.remove("hidden");
+    } finally {
+      loginSubmitBtn.disabled = false;
+    }
+  });
+
+  loginPassword.addEventListener("keydown", (e) => { if (e.key === "Enter") loginSubmitBtn.click(); });
+
+  registerSubmitBtn.addEventListener("click", async () => {
+    const username = regUsername.value.trim();
+    const password = regPassword.value;
+    if (!username || !password) {
+      registerError.textContent = "Please enter username and password.";
+      registerError.classList.remove("hidden");
+      return;
+    }
+    registerSubmitBtn.disabled = true;
+    try {
+      const res = await fetch("/api/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        registerError.textContent = data.error || "Registration failed.";
+        registerError.classList.remove("hidden");
+      } else {
+        onLoggedIn();
+        checkHealth();
+        fetchConfig();
+        fetchHistory();
+      }
+    } catch (err) {
+      registerError.textContent = "Network error.";
+      registerError.classList.remove("hidden");
+    } finally {
+      registerSubmitBtn.disabled = false;
+    }
+  });
+
+  regPassword.addEventListener("keydown", (e) => { if (e.key === "Enter") registerSubmitBtn.click(); });
+
+  logoutBtn.addEventListener("click", async () => {
+    await fetch("/api/logout", { method: "POST" });
+    userNavItem.classList.add("hidden");
+    showAuthModal();
+  });
+
+  async function checkAuth() {
+    try {
+      const res = await fetch("/api/me");
+      if (res.ok) {
+        const data = await res.json();
+        onLoggedIn();
+        return true;
+      }
+    } catch (_) {}
+    showAuthModal();
+    return false;
+  }
+
   // --- Initialize Config / Health Check / History ---
-  checkHealth();
-  fetchConfig();
-  fetchHistory();
+  checkAuth().then(authed => {
+    if (authed) {
+      checkHealth();
+      fetchConfig();
+      fetchHistory();
+    }
+  });
 
   // Models are lazy-loaded when settings opens
   let modelsFetched = false;
@@ -395,11 +537,24 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Mouse selection for multi-word highlights on both primary and secondary paragraphs
-  passagePrimary.addEventListener("mouseup", () => handleTextSelection(passagePrimary));
-  passagePrimary.addEventListener("touchend", () => handleTextSelection(passagePrimary));
-  passageSecondary.addEventListener("mouseup", () => handleTextSelection(passageSecondary));
-  passageSecondary.addEventListener("touchend", () => handleTextSelection(passageSecondary));
+  // Phrase selection — debounced selectionchange works on both desktop and mobile
+  // (touchend fires before the browser commits a mobile long-press selection)
+  let selectionTimer = null;
+  document.addEventListener("selectionchange", () => {
+    clearTimeout(selectionTimer);
+    selectionTimer = setTimeout(() => {
+      const selection = window.getSelection();
+      const selectedText = selection?.toString().trim();
+      if (!selectedText || !selectedText.includes(" ")) return;
+
+      const anchor = selection.anchorNode?.parentElement;
+      const passages = [passagePrimary, passageSecondary];
+      if (!passages.some(p => p.contains(anchor))) return;
+
+      document.querySelectorAll(".word-span").forEach(w => w.classList.remove("active-word"));
+      analyzeWordOrPhrase(selectedText, true);
+    }, 400);
+  });
 
   // Close analyzer panel
   closeAnalyzer.addEventListener("click", hideAnalyzerPanel);
@@ -580,19 +735,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Handle custom selections (e.g. phrases, idioms or sentences)
-  function handleTextSelection(containerElement) {
-    const selection = window.getSelection();
-    const selectedText = selection.toString().trim();
-    
-    if (selectedText.length > 0 && selectedText.includes(" ")) {
-      // Clear active class from all single word clicks
-      document.querySelectorAll(".word-span").forEach(w => w.classList.remove("active-word"));
-      
-      // Analyze the phrase
-      analyzeWordOrPhrase(selectedText, true);
-    }
-  }
 
   // Trigger Backend Analysis
   // isPhrase: true when the user selected multiple words; hides the conjugation table.
