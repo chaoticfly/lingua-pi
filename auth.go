@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -11,6 +12,15 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 )
+
+type contextKey string
+
+const userIDKey contextKey = "userID"
+
+func userIDFromRequest(r *http.Request) int64 {
+	id, _ := r.Context().Value(userIDKey).(int64)
+	return id
+}
 
 // --- DB operations ---
 
@@ -69,14 +79,15 @@ func requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			json.NewEncoder(w).Encode(map[string]string{"error": "not authenticated"})
 			return
 		}
-		_, _, err = GetUserBySession(cookie.Value)
+		userID, _, err := GetUserBySession(cookie.Value)
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(map[string]string{"error": "not authenticated"})
 			return
 		}
-		next(w, r)
+		ctx := context.WithValue(r.Context(), userIDKey, userID)
+		next(w, r.WithContext(ctx))
 	}
 }
 

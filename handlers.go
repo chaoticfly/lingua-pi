@@ -145,7 +145,7 @@ func handleGetHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	history, err := GetHistory()
+	history, err := GetHistory(userIDFromRequest(r))
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -183,7 +183,7 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err = AddHistory(result.Text, result.Transliteration, result.Translation, result.Title, result.Category, req.Language, int(req.Difficulty)); err != nil {
+	if err = AddHistory(userIDFromRequest(r), result.Text, result.Transliteration, result.Translation, result.Title, result.Category, req.Language, int(req.Difficulty)); err != nil {
 		log.Printf("Error adding history: %v", err)
 	}
 
@@ -237,7 +237,7 @@ func handleQuiz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	passage, err := GetQuizPassage()
+	passage, err := GetQuizPassage(userIDFromRequest(r))
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)

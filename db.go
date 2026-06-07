@@ -30,6 +30,7 @@ func InitDB() error {
 		return err
 	}
 
+	migrateAddUserID()
 	migrateHistoryJSON(dir)
 	return nil
 }
@@ -55,8 +56,9 @@ func createTables() error {
 
 		CREATE TABLE IF NOT EXISTS history (
 			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id         INTEGER NOT NULL DEFAULT 0,
 			title           TEXT    NOT NULL,
-			text            TEXT    NOT NULL UNIQUE,
+			text            TEXT    NOT NULL,
 			transliteration TEXT    NOT NULL DEFAULT '',
 			translation     TEXT    NOT NULL,
 			category        TEXT    NOT NULL DEFAULT '',
@@ -76,6 +78,12 @@ func createTables() error {
 		CREATE INDEX IF NOT EXISTS idx_quiz_history_id   ON quiz_results(history_id);
 	`)
 	return err
+}
+
+// migrateAddUserID adds the user_id column to existing history tables.
+func migrateAddUserID() {
+	// Silently ignored if the column already exists.
+	DB.Exec(`ALTER TABLE history ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0`)
 }
 
 // migrateHistoryJSON moves history.json into SQLite once and renames the file.
@@ -133,10 +141,10 @@ type HistoryEntry struct {
 	CreatedAt       time.Time `json:"created_at"`
 }
 
-func GetHistory() ([]HistoryEntry, error) {
+func GetHistory(userID int64) ([]HistoryEntry, error) {
 	rows, err := DB.Query(`
 		SELECT id, title, text, transliteration, translation, category, language, difficulty, created_at
-		FROM history ORDER BY created_at DESC LIMIT 25`)
+		FROM history WHERE user_id = ? ORDER BY created_at DESC LIMIT 25`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -154,18 +162,18 @@ func GetHistory() ([]HistoryEntry, error) {
 	return entries, rows.Err()
 }
 
-func AddHistory(text, transliteration, translation, title, category, language string, difficulty int) error {
+func AddHistory(userID int64, text, transliteration, translation, title, category, language string, difficulty int) error {
 	_, err := DB.Exec(`
-		INSERT OR IGNORE INTO history (title, text, transliteration, translation, category, language, difficulty)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		title, text, transliteration, translation, category, language, difficulty)
+		INSERT INTO history (user_id, title, text, transliteration, translation, category, language, difficulty)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		userID, title, text, transliteration, translation, category, language, difficulty)
 	return err
 }
 
 // --- Quiz ---
 
 // GetQuizPassage returns a random history entry, biased toward those least recently quizzed.
-func GetQuizPassage() (*HistoryEntry, error) {
+func GetQuizPassage(userID int64) (*HistoryEntry, error) {
 	var e HistoryEntry
 	err := DB.QueryRow(`
 		SELECT h.id, h.title, h.text, h.transliteration, h.translation, h.category, h.language, h.difficulty, h.created_at
@@ -174,8 +182,9 @@ func GetQuizPassage() (*HistoryEntry, error) {
 			SELECT history_id, MAX(attempted_at) AS last_quiz
 			FROM quiz_results GROUP BY history_id
 		) q ON h.id = q.history_id
+		WHERE h.user_id = ?
 		ORDER BY COALESCE(q.last_quiz, '1970-01-01') ASC, RANDOM()
-		LIMIT 1`).Scan(
+		LIMIT 1`, userID).Scan(
 		&e.ID, &e.Title, &e.Text, &e.Transliteration, &e.Translation,
 		&e.Category, &e.Language, &e.Difficulty, &e.CreatedAt)
 	if err != nil {
