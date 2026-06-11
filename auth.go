@@ -208,15 +208,26 @@ func handleMe(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "not authenticated"})
 		return
 	}
-	_, username, err := GetUserBySession(cookie.Value)
+	userID, username, err := GetUserBySession(cookie.Value)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		json.NewEncoder(w).Encode(map[string]string{"error": "not authenticated"})
 		return
 	}
+	language, difficulty, _ := GetUserPreferences(userID)
+	if language == "" {
+		language = "Spanish"
+	}
+	if difficulty == 0 {
+		difficulty = 2
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"username": username})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"username":   username,
+		"language":   language,
+		"difficulty": difficulty,
+	})
 }
 
 func setSessionCookie(w http.ResponseWriter, token string) {

@@ -36,6 +36,7 @@ func RegisterRoutes() {
 	http.HandleFunc("/api/history", requireAuth(handleGetHistory))
 	http.HandleFunc("/api/quiz", requireAuth(handleQuiz))
 	http.HandleFunc("/api/quiz/result", requireAuth(handleQuizResult))
+	http.HandleFunc("/api/preferences", requireAuth(handlePreferences))
 }
 
 func serveIndex(w http.ResponseWriter, r *http.Request) {
@@ -245,6 +246,42 @@ func handleQuiz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	json.NewEncoder(w).Encode(passage)
+}
+
+func handlePreferences(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	userID := userIDFromRequest(r)
+
+	if r.Method == http.MethodGet {
+		language, difficulty, err := GetUserPreferences(userID)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"language": language, "difficulty": difficulty})
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		var body struct {
+			Language   string `json:"language"`
+			Difficulty int    `json:"difficulty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Language == "" {
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+		if err := SetUserPreferences(userID, body.Language, body.Difficulty); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+		return
+	}
+
+	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 }
 
 func handleQuizResult(w http.ResponseWriter, r *http.Request) {

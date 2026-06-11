@@ -31,6 +31,7 @@ func InitDB() error {
 	}
 
 	migrateAddUserID()
+	migrateAddUserPreferences()
 	migrateHistoryJSON(dir)
 	return nil
 }
@@ -82,8 +83,23 @@ func createTables() error {
 
 // migrateAddUserID adds the user_id column to existing history tables.
 func migrateAddUserID() {
-	// Silently ignored if the column already exists.
 	DB.Exec(`ALTER TABLE history ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0`)
+}
+
+// migrateAddUserPreferences adds language/difficulty preference columns to users.
+func migrateAddUserPreferences() {
+	DB.Exec(`ALTER TABLE users ADD COLUMN language TEXT NOT NULL DEFAULT 'Spanish'`)
+	DB.Exec(`ALTER TABLE users ADD COLUMN difficulty INTEGER NOT NULL DEFAULT 2`)
+}
+
+func GetUserPreferences(userID int64) (language string, difficulty int, err error) {
+	err = DB.QueryRow(`SELECT language, difficulty FROM users WHERE id = ?`, userID).Scan(&language, &difficulty)
+	return
+}
+
+func SetUserPreferences(userID int64, language string, difficulty int) error {
+	_, err := DB.Exec(`UPDATE users SET language = ?, difficulty = ? WHERE id = ?`, language, difficulty, userID)
+	return err
 }
 
 // migrateHistoryJSON moves history.json into SQLite once and renames the file.

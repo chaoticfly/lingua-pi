@@ -110,6 +110,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   difficultySelect.addEventListener("change", (e) => {
     localStorage.setItem("linguapi_difficulty", e.target.value);
+    savePreferences();
   });
 
   settingsOpenBtn.addEventListener("click", async () => {
@@ -239,9 +240,51 @@ document.addEventListener("DOMContentLoaded", () => {
     authModal.showModal();
   }
 
+  // Prevent Escape from dismissing the login dialog
+  authModal.addEventListener("cancel", (e) => e.preventDefault());
+
   function onLoggedIn() {
     authModal.close();
     userNavItem.classList.remove("hidden");
+  }
+
+  function applyUserPreferences(language, difficulty) {
+    if (language) {
+      activeLanguage = language;
+      languageSelect.value = language;
+      localStorage.setItem("linguapi_active_language", language);
+    }
+    if (difficulty) {
+      difficultySelect.value = String(difficulty);
+      localStorage.setItem("linguapi_difficulty", String(difficulty));
+    }
+  }
+
+  async function savePreferences() {
+    try {
+      await fetch("/api/preferences", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          language: activeLanguage,
+          difficulty: parseInt(difficultySelect.value, 10)
+        })
+      });
+    } catch (_) {}
+  }
+
+  async function afterAuth() {
+    try {
+      const res = await fetch("/api/me");
+      if (res.ok) {
+        const data = await res.json();
+        applyUserPreferences(data.language, data.difficulty);
+      }
+    } catch (_) {}
+    onLoggedIn();
+    checkHealth();
+    fetchConfig();
+    fetchHistory();
   }
 
   loginSubmitBtn.addEventListener("click", async () => {
@@ -264,10 +307,7 @@ document.addEventListener("DOMContentLoaded", () => {
         loginError.textContent = data.error || "Login failed.";
         loginError.classList.remove("hidden");
       } else {
-        onLoggedIn();
-        checkHealth();
-        fetchConfig();
-        fetchHistory();
+        await afterAuth();
       }
     } catch (err) {
       loginError.textContent = "Network error.";
@@ -299,10 +339,7 @@ document.addEventListener("DOMContentLoaded", () => {
         registerError.textContent = data.error || "Registration failed.";
         registerError.classList.remove("hidden");
       } else {
-        onLoggedIn();
-        checkHealth();
-        fetchConfig();
-        fetchHistory();
+        await afterAuth();
       }
     } catch (err) {
       registerError.textContent = "Network error.";
@@ -325,6 +362,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const res = await fetch("/api/me");
       if (res.ok) {
         const data = await res.json();
+        applyUserPreferences(data.language, data.difficulty);
         onLoggedIn();
         return true;
       }
@@ -492,6 +530,7 @@ document.addEventListener("DOMContentLoaded", () => {
   languageSelect.addEventListener("change", (e) => {
     activeLanguage = e.target.value;
     localStorage.setItem("linguapi_active_language", activeLanguage);
+    savePreferences();
     showToast(`Language set to ${activeLanguage}. Click "Get New Passage" to load a text.`, "info");
   });
 
